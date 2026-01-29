@@ -236,7 +236,7 @@ export default function Dashboard() {
             <div className="mt-8 pt-8 border-t border-gray-200">
               <Link 
                 href="/account"
-                className="inline-flex items-center gap-2 text-[#A8C5B5] hover:text-[#8FB5A0] font-medium"
+                className="inline-flex items-center gap-2 text-[#2f5ee9] hover:text-[#2e7eeece] font-medium"
               >
                 Manage Subscription
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

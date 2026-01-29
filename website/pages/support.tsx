@@ -111,7 +111,7 @@ export default function Support() {
           <h2>Need Help or Have a Question?</h2>
           <p>
             We're happy to help. Email us anytime at{" "}
-            <a href="mailto:batch.maker.app@gmail.com" className="text-[#A8C5B5] hover:text-[#8FB5A0]">
+            <a href="mailto:batch.maker.app@gmail.com" className="text-[#2f5ee9] hover:text-[#2e7eeece]">
               batch.maker.app@gmail.com
             </a>.
             We do our best to respond as quickly as possible.

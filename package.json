@@ -8,6 +8,7 @@
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
+    "stylelint-config-tailwindcss": "^1.0.1",
     "typescript": "~5.9.2"
   }
 }

@@ -46,7 +46,7 @@ export default function SubscriptionPolicy() {
           <h2>Contact</h2>
           <p>
             Questions about your subscription? Contact us at{" "}
-            <a href="mailto:batch.maker.app@gmail.com" className="text-[#A8C5B5] hover:text-[#8FB5A0]">
+            <a href="mailto:batch.maker.app@gmail.com" className="text-[#2f5ee9] hover:text-[#2e7eeece]">
               batch.maker.app@gmail.com
             </a>.
           </p>

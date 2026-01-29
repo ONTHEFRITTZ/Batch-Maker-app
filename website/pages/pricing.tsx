@@ -59,19 +59,19 @@ export default function Pricing() {
             
             <ul className="space-y-3 mb-8">
               <li className="flex items-center">
-                <span className="text-green-500 mr-2">✓</span>
+                <span className="text-blue-500 mr-2">✓</span>
                 30-day free trial
               </li>
               <li className="flex items-center">
-                <span className="text-green-500 mr-2">✓</span>
+                <span className="text-blue-500 mr-2">✓</span>
                 Unlimited workflows
               </li>
               <li className="flex items-center">
-                <span className="text-green-500 mr-2">✓</span>
+                <span className="text-blue-500 mr-2">✓</span>
                 Cloud sync
               </li>
               <li className="flex items-center">
-                <span className="text-green-500 mr-2">✓</span>
+                <span className="text-blue-500 mr-2">✓</span>
                 Cancel anytime
               </li>
             </ul>

@@ -102,13 +102,12 @@ export default function Home() {
             </div>
             <div className="space-y-1">
               <div className="text-5xl font-bold text-gray-900">Free</div>
-              <div className="text-gray-500">Forever</div>
             </div>
           </div>
 
           <ul className="space-y-3">
             <li className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-[#A8C5B5] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 text-[#2f5ee9] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <span className="text-gray-700">Unlimited workflows & batches</span>

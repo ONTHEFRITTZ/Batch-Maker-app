@@ -103,7 +103,7 @@ export default function TermsOfService() {
           <h2>Contact</h2>
           <p>
             If you have questions about these terms, contact us at{" "}
-            <a href="mailto:batch.maker.app@gmail.com" className="text-[#A8C5B5] hover:text-[#8FB5A0]">
+            <a href="mailto:batch.maker.app@gmail.com" className="text-[#2f5ee9] hover:text-[#2e7eeece]">
               batch.maker.app@gmail.com
             </a>.
           </p>
