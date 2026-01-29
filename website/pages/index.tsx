@@ -54,7 +54,7 @@ export default function Home() {
                 <div className="relative flex justify-center">
                   <div className="relative w-full max-w-md">
                     <img
-                      src="/assets/images/splash.png"
+                      src="/assets/images/batchmaker-app.png"
                       alt="Batch Maker App"
                       className="w-full h-auto drop-shadow-2xl"
                     />
@@ -113,7 +113,7 @@ export default function Home() {
               <span className="text-gray-700">Unlimited workflows & batches</span>
             </li>
             <li className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-[#A8C5B5] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-5 h-5 text-[#a8b7c5] flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
               <span className="text-gray-700">Solo use only</span>
