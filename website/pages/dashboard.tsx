@@ -1,43 +1,126 @@
-import { useState, useEffect } from "react"
-import Link from "next/link"
-import Head from "next/head"
-import { useRouter } from "next/router"
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/router'
 import { createClient } from '@supabase/supabase-js'
+import Link from "next/link"
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 export default function Dashboard() {
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [workflows, setWorkflows] = useState<any[]>([])
+  const [batches, setBatches] = useState<any[]>([])
+  const [reports, setReports] = useState<any[]>([])
+  const [photos, setPhotos] = useState<any[]>([])
+  const [profile, setProfile] = useState<any>(null)
+  const [network, setNetwork] = useState<any>(null)
+  const [networkMembers, setNetworkMembers] = useState<any[]>([])
+  const [assignModalOpen, setAssignModalOpen] = useState(false)
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [selectedWorkflow, setSelectedWorkflow] = useState<any>(null)
+  const [inviteEmail, setInviteEmail] = useState('')
 
   useEffect(() => {
-    checkAuth()
-  }, [])
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        router.push('/login')
+        return
+      }
 
-  const checkAuth = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    
-    if (!session) {
-      router.push('/login')
-      return
+      setUser(session.user)
+      await fetchAllData(session.user.id)
+      setLoading(false)
     }
 
-    setUser(session.user)
+    checkAuth()
+  }, [router])
 
-    // Fetch profile data
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single()
+  const fetchAllData = async (userId: string) => {
+    try {
+      // Fetch profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
+      
+      setProfile(profileData)
 
-    setProfile(profileData)
-    setIsLoading(false)
+      // Fetch user's network if they're premium
+      if (profileData?.role === 'premium' || profileData?.role === 'admin') {
+        const { data: networkData } = await supabase
+          .from('networks')
+          .select('*')
+          .eq('owner_id', userId)
+          .single()
+        
+        setNetwork(networkData)
+
+        if (networkData) {
+          // Fetch network members
+          const { data: membersData } = await supabase
+            .from('network_members')
+            .select(`
+              *,
+              profiles:user_id (
+                id,
+                email,
+                device_name
+              )
+            `)
+            .eq('network_id', networkData.id)
+          
+          setNetworkMembers(membersData || [])
+        }
+      }
+
+      // Fetch workflows
+      const { data: workflowsData } = await supabase
+        .from('workflows')
+        .select('*')
+        .eq('user_id', userId)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+      
+      setWorkflows(workflowsData || [])
+
+      // Fetch batches
+      const { data: batchesData } = await supabase
+        .from('batches')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+      
+      setBatches(batchesData || [])
+
+      // Fetch reports
+      const { data: reportsData } = await supabase
+        .from('reports')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      
+      setReports(reportsData || [])
+
+      // Fetch photos
+      const { data: photosData } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(10)
+      
+      setPhotos(photosData || [])
+
+    } catch (error) {
+      console.error('Error fetching data:', error)
+    }
   }
 
   const handleSignOut = async () => {
@@ -45,115 +128,374 @@ export default function Dashboard() {
     router.push('/')
   }
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#E8E8E8] flex items-center justify-center">
-        <div className="text-gray-600">Loading...</div>
-      </div>
-    )
+  const openAssignModal = (workflow: any) => {
+    setSelectedWorkflow(workflow)
+    setAssignModalOpen(true)
   }
 
+  const handleAssignWorkflow = async (targetUserId: string) => {
+    try {
+      const targetMember = networkMembers.find(m => m.user_id === targetUserId)
+      
+      const { error } = await supabase
+        .from('workflows')
+        .update({
+          claimed_by: targetUserId,
+          claimed_by_name: targetMember?.profiles?.device_name || targetMember?.profiles?.email,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedWorkflow.id)
+
+      if (!error) {
+        await fetchAllData(user.id)
+        setAssignModalOpen(false)
+        alert('Workflow assigned successfully!')
+      } else {
+        alert('Error assigning workflow: ' + error.message)
+      }
+    } catch (error) {
+      console.error('Error assigning workflow:', error)
+      alert('Error assigning workflow')
+    }
+  }
+
+  const handleInviteUser = async () => {
+    if (!inviteEmail || !network) return
+
+    try {
+      // In a real app, you'd send an email invitation
+      // For now, we'll just show a message
+      alert(`Invitation sent to ${inviteEmail}! They'll need to sign in and join your network.`)
+      setInviteEmail('')
+      setInviteModalOpen(false)
+    } catch (error) {
+      console.error('Error inviting user:', error)
+      alert('Error sending invitation')
+    }
+  }
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!confirm('Are you sure you want to remove this member?')) return
+
+    try {
+      const { error } = await supabase
+        .from('network_members')
+        .delete()
+        .eq('id', memberId)
+
+      if (!error) {
+        await fetchAllData(user.id)
+        alert('Member removed successfully')
+      } else {
+        alert('Error removing member: ' + error.message)
+      }
+    } catch (error) {
+      console.error('Error removing member:', error)
+      alert('Error removing member')
+    }
+  }
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+  }
+
+  const isPremium = profile?.role === 'premium' || profile?.role === 'admin'
+  const activeBatches = batches.filter(b => b.current_step_index < (b.steps?.length || 0))
+
   return (
-    <>
-      <Head>
-        <title>Dashboard - Batch Maker</title>
-      </Head>
-
-      <div className="min-h-screen bg-[#E8E8E8]">
-        <header className="bg-white border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <Link href="/" className="flex items-center gap-3">
-              <img src="/assets/icons/logo.png" alt="Batch Maker" className="h-9 w-9" />
-              <span className="text-lg font-semibold">Batch Maker</span>
-            </Link>
-
-            <div className="flex items-center gap-4">
-              <Link href="/account" className="text-gray-600 hover:text-gray-900">
-                Account
-              </Link>
-              <button
-                onClick={handleSignOut}
-                className="text-gray-600 hover:text-gray-900"
-              >
-                Sign Out
-              </button>
-            </div>
+    <main className="min-h-screen px-6 py-12 bg-bakery-bg">
+      <div className="max-w-6xl mx-auto">
+        <header className="flex items-center justify-between mb-10">
+          <div>
+            <h1 className="text-3xl font-semibold">Dashboard</h1>
+            <p className="text-sm text-bakery-muted mt-1">
+              {isPremium ? '👑 Premium Account' : '🆓 Free Account'}
+            </p>
           </div>
+
+          <nav className="flex gap-4 text-sm">
+            <Link href="/account" className="underline">
+              Account
+            </Link>
+            <button onClick={handleSignOut} className="underline">
+              Sign Out
+            </button>
+          </nav>
         </header>
 
-        <main className="max-w-7xl mx-auto px-6 py-12">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-            <p className="text-gray-600">Welcome back, {user?.email}</p>
+        {/* Stats Overview */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-soft">
+            <div className="text-2xl font-bold text-bakery-accent">{workflows.length}</div>
+            <div className="text-sm text-bakery-muted">Total Workflows</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-soft">
+            <div className="text-2xl font-bold text-bakery-accent">{activeBatches.length}</div>
+            <div className="text-sm text-bakery-muted">Active Batches</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-soft">
+            <div className="text-2xl font-bold text-bakery-accent">{reports.length}</div>
+            <div className="text-sm text-bakery-muted">Reports</div>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-soft">
+            <div className="text-2xl font-bold text-bakery-accent">{networkMembers.length}</div>
+            <div className="text-sm text-bakery-muted">Connected Users</div>
+          </div>
+        </div>
+
+        {/* User Info */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft mb-6">
+          <h2 className="text-xl font-semibold mb-4">
+            Welcome, {user?.user_metadata?.full_name || user?.email}!
+          </h2>
+          <div className="space-y-2 text-sm text-bakery-muted">
+            <p><strong>Email:</strong> {user?.email}</p>
+            <p><strong>Account created:</strong> {new Date(user?.created_at).toLocaleDateString()}</p>
+            <p><strong>Subscription:</strong> {profile?.subscription_status || 'trial'}</p>
+          </div>
+        </section>
+
+        {/* Network Management (Premium Only) */}
+        {isPremium && (
+          <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">Network Members</h2>
+              <button
+                onClick={() => setInviteModalOpen(true)}
+                className="bg-bakery-accent text-white px-4 py-2 rounded-lg text-sm hover:opacity-90"
+              >
+                + Invite User
+              </button>
+            </div>
+
+            {networkMembers.length === 0 ? (
+              <p className="text-bakery-muted text-sm">
+                No connected users yet. Invite team members to share workflows and collaborate.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {networkMembers.map((member: any) => (
+                  <div key={member.id} className="border border-gray-200 rounded-xl p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold">
+                        {member.profiles?.device_name || member.profiles?.email}
+                        {member.role === 'owner' && (
+                          <span className="ml-2 text-xs bg-bakery-accent text-white px-2 py-1 rounded">
+                            Owner
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-sm text-bakery-muted">{member.profiles?.email}</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Last active: {new Date(member.last_active).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {member.role !== 'owner' && (
+                      <button
+                        onClick={() => handleRemoveMember(member.id)}
+                        className="text-red-600 text-sm hover:underline"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Workflows Section */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Your Workflows</h2>
+            <span className="text-sm text-bakery-muted">{workflows.length} total</span>
           </div>
 
-          {/* Subscription Status Banner */}
-          {profile?.subscription_status === 'trial' && (
-            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mb-8">
-              <div className="flex items-start gap-4">
-                <svg className="w-6 h-6 text-blue-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <div>
-                  <h3 className="font-semibold text-blue-900 mb-1">Trial Active</h3>
-                  <p className="text-blue-800 text-sm">
-                    You're on a free trial. Download the mobile app to get started!
-                  </p>
+          {workflows.length === 0 ? (
+            <p className="text-bakery-muted text-sm">No workflows yet. Create one in the mobile app!</p>
+          ) : (
+            <div className="space-y-3">
+              {workflows.map((workflow) => (
+                <div key={workflow.id} className="border border-gray-200 rounded-xl p-4 hover:bg-gray-50 transition">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h3 className="font-semibold">{workflow.name}</h3>
+                      <p className="text-sm text-bakery-muted mt-1">
+                        {workflow.steps?.length || 0} steps
+                      </p>
+                      {workflow.claimed_by && (
+                        <p className="text-xs text-bakery-accent mt-2">
+                          Assigned to: {workflow.claimed_by_name || 'Unknown'}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">
+                        Created: {new Date(workflow.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    {isPremium && networkMembers.length > 0 && (
+                      <button
+                        onClick={() => openAssignModal(workflow)}
+                        className="bg-bakery-accent text-white px-4 py-2 rounded-lg text-sm hover:opacity-90"
+                      >
+                        Assign
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
           )}
+        </section>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <div className="text-sm text-gray-500 mb-1">Active Workflows</div>
-              <div className="text-3xl font-bold text-gray-900">—</div>
-              <div className="text-xs text-gray-400 mt-2">Connect your mobile app to see data</div>
-            </div>
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <div className="text-sm text-gray-500 mb-1">Batches This Week</div>
-              <div className="text-3xl font-bold text-gray-900">—</div>
-              <div className="text-xs text-gray-400 mt-2">Connect your mobile app to see data</div>
-            </div>
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <div className="text-sm text-gray-500 mb-1">Team Members</div>
-              <div className="text-3xl font-bold text-gray-900">
-                {profile?.role === 'premium' ? '1' : '—'}
-              </div>
-              <div className="text-xs text-gray-400 mt-2">
-                {profile?.role === 'premium' ? 'You' : 'Upgrade to add team members'}
-              </div>
-            </div>
+        {/* Active Batches Section */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Active Batches</h2>
+            <span className="text-sm text-bakery-muted">{activeBatches.length} in progress</span>
           </div>
 
-          {/* Download App Section */}
-          <div className="bg-white rounded-3xl shadow-lg p-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">
-              Get the Mobile App
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Download Batch Maker on your phone or tablet to create workflows and manage batches.
-            </p>
-            
-            <div className="flex gap-4">
-              <button className="bg-black text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-gray-800 transition-colors">
-                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
-                </svg>
-                <span className="text-sm font-medium">Download on App Store</span>
-              </button>
-              
-              <button className="bg-black text-white px-6 py-3 rounded-lg flex items-center gap-2 hover:bg-gray-800 transition-colors">
-                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3,20.5V3.5C3,2.91 3.34,2.39 3.84,2.15L13.69,12L3.84,21.85C3.34,21.6 3,21.09 3,20.5M16.81,15.12L6.05,21.34L14.54,12.85L16.81,15.12M20.16,10.81C20.5,11.08 20.75,11.5 20.75,12C20.75,12.5 20.5,12.92 20.16,13.19L17.89,14.5L15.39,12L17.89,9.5L20.16,10.81M6.05,2.66L16.81,8.88L14.54,11.15L6.05,2.66Z"/>
-                </svg>
-                <span className="text-sm font-medium">Get it on Google Play</span>
-              </button>
+          {activeBatches.length === 0 ? (
+            <p className="text-bakery-muted text-sm">No active batches.</p>
+          ) : (
+            <div className="space-y-3">
+              {activeBatches.slice(0, 5).map((batch) => (
+                <div key={batch.id} className="border border-gray-200 rounded-xl p-4">
+                  <h3 className="font-semibold">{batch.name}</h3>
+                  <p className="text-sm text-bakery-muted mt-1">
+                    Step {batch.current_step_index + 1} of {batch.steps?.length || 0}
+                  </p>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+                    <div 
+                      className="bg-bakery-accent h-2 rounded-full" 
+                      style={{ width: `${((batch.current_step_index + 1) / (batch.steps?.length || 1)) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))}
             </div>
+          )}
+        </section>
+
+        {/* Recent Reports */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Recent Reports</h2>
+            <span className="text-sm text-bakery-muted">{reports.length} total</span>
           </div>
-        </main>
+
+          {reports.length === 0 ? (
+            <p className="text-bakery-muted text-sm">No reports yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {reports.map((report) => (
+                <div key={report.id} className="border-b border-gray-100 py-2 last:border-0">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <span className="text-sm font-medium">{report.type}</span>
+                      <p className="text-xs text-gray-400">
+                        {new Date(report.created_at).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Recent Photos */}
+        <section className="bg-white border border-gray-200 rounded-2xl p-8 shadow-soft">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Recent Photos</h2>
+            <span className="text-sm text-bakery-muted">{photos.length} total</span>
+          </div>
+
+          {photos.length === 0 ? (
+            <p className="text-bakery-muted text-sm">No photos yet.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+              {photos.map((photo) => (
+                <div key={photo.id} className="border border-gray-200 rounded-xl overflow-hidden">
+                  <img 
+                    src={photo.url} 
+                    alt="Batch photo" 
+                    className="w-full h-32 object-cover"
+                  />
+                  <p className="text-xs text-gray-400 p-2">
+                    {new Date(photo.created_at).toLocaleDateString()}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
-    </>
+
+      {/* Assign Workflow Modal */}
+      {assignModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">
+              Assign Workflow: {selectedWorkflow?.name}
+            </h3>
+
+            <div className="space-y-2 mb-4">
+              {networkMembers.map((member: any) => (
+                <button
+                  key={member.id}
+                  onClick={() => handleAssignWorkflow(member.user_id)}
+                  className="w-full text-left border border-gray-200 rounded-xl p-4 hover:bg-gray-50"
+                >
+                  <p className="font-medium">{member.profiles?.device_name || member.profiles?.email}</p>
+                  <p className="text-sm text-bakery-muted">{member.profiles?.email}</p>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setAssignModalOpen(false)}
+              className="w-full bg-gray-200 text-bakery-ink px-4 py-2 rounded-xl"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Invite User Modal */}
+      {inviteModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4">
+            <h3 className="text-xl font-semibold mb-4">Invite User to Network</h3>
+            
+            <input
+              type="email"
+              placeholder="user@example.com"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2 mb-4"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleInviteUser}
+                className="flex-1 bg-bakery-accent text-white px-4 py-2 rounded-xl"
+              >
+                Send Invite
+              </button>
+              <button
+                onClick={() => {
+                  setInviteModalOpen(false)
+                  setInviteEmail('')
+                }}
+                className="flex-1 bg-gray-200 text-bakery-ink px-4 py-2 rounded-xl"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </main>
   )
 }

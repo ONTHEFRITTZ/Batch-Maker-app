@@ -1,6 +1,6 @@
 // pages/api/workflows/index.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { supabase, getUserFromRequest, checkSubscription } from '../../../lib/supabase';
+import { supabase, getUserFromRequest, checkSubscription } from '../../lib/supabase';
 
 export default async function handler(
   req: NextApiRequest,

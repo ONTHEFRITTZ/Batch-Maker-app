@@ -4,7 +4,8 @@
     "dotenv": "^17.2.3",
     "expo": "^54.0.32",
     "react-native-purchases": "^9.7.3",
-    "react-native-purchases-ui": "^9.7.3"
+    "react-native-purchases-ui": "^9.7.3",
+    "react-native-url-polyfill": "^3.0.0"
   },
   "devDependencies": {
     "@types/react": "~19.1.10",
