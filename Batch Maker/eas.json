@@ -11,14 +11,14 @@
     "preview": {
       "distribution": "internal",
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "autoIncrement": true
       }
     },
     "production": {
-      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle",
-        "proguard": true
+        "autoIncrement": true
       }
     }
   },

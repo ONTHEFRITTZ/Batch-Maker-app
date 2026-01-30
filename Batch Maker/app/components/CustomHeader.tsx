@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   },
   backArrow: {
     fontSize: 28,
-    paddingBottom: 20,
+    paddingBottom: 14,
     fontWeight: '600',
   },
   logo: {

@@ -13,7 +13,7 @@ export default function AuthContainer({
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 mb-4">
             <img
-              src="/assets/icons/logo.png"
+              src="/assets/icons/icon.png"
               alt="Batch Maker logo"
               className="h-8 w-8"
             />
