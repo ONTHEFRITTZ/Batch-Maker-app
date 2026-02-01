@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
 
+
 interface Workflow {
   id: string;
   name: string;
@@ -48,23 +49,64 @@ interface BatchCompletionReport {
   archived?: boolean;
 }
 
-interface EnvironmentalReport {
+interface InventoryItem {
   id: string;
-  timestamp: number;
-  date: string;
-  time: string;
-  ambient_temp?: number;
-  humidity?: number;
+  user_id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  low_stock_threshold?: number;
+  cost_per_unit?: number;
+  supplier?: string;
+  category?: string;
   notes?: string;
-  created_by: string;
-  archived?: boolean;
+  last_updated: string;
+  created_at: string;
 }
 
-interface Photo {
+interface InventoryTransaction {
   id: string;
-  url: string;
-  created_at: string;
+  user_id: string;
+  item_id: string;
   batch_id?: string;
+  type: 'add' | 'use' | 'adjust' | 'waste';
+  quantity: number;
+  cost?: number;
+  notes?: string;
+  created_by: string;
+  created_at: string;
+}
+
+interface ShoppingListItem {
+  id: string;
+  user_id: string;
+  item_name: string;
+  quantity: number;
+  unit: string;
+  priority: 'urgent' | 'high' | 'normal' | 'low';
+  status: 'pending' | 'ordered' | 'received';
+  estimated_cost?: number;
+  supplier?: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ScheduledBatch {
+  id: string;
+  user_id: string;
+  workflow_id: string;
+  template_id?: string;
+  scheduled_date: string;
+  scheduled_time?: string;
+  name: string;
+  batch_size_multiplier: number;
+  assigned_to?: string;
+  assigned_to_name?: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Profile {
@@ -73,12 +115,6 @@ interface Profile {
   device_name?: string;
   role?: string;
   subscription_status?: string;
-}
-
-interface Network {
-  id: string;
-  owner_id: string;
-  name?: string;
 }
 
 interface NetworkMember {
@@ -90,30 +126,92 @@ interface NetworkMember {
   profiles?: Profile;
 }
 
-export default function Dashboard() {
+interface BatchTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  workflow_id: string;
+  workflow_name: string;
+  steps: any[];
+  ingredients_used?: any[];
+  batch_size_multiplier: number;
+  estimated_duration?: number;
+  estimated_cost?: number;
+  selling_price?: number;
+  created_by: string;
+  created_at: string;
+  times_used: number;
+}
+
+export default function EnhancedDashboard() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [batchReports, setBatchReports] = useState<BatchCompletionReport[]>([]);
-  const [envReports, setEnvReports] = useState<EnvironmentalReport[]>([]);
-  const [photos, setPhotos] = useState<Photo[]>([]);
-  const [network, setNetwork] = useState<Network | null>(null);
+  const [batchTemplates, setBatchTemplates] = useState<BatchTemplate[]>([]);
   const [networkMembers, setNetworkMembers] = useState<NetworkMember[]>([]);
+  
+  // New state for inventory
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [inventoryTransactions, setInventoryTransactions] = useState<InventoryTransaction[]>([]);
+  const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
+  
+  // New state for calendar
+  const [scheduledBatches, setScheduledBatches] = useState<ScheduledBatch[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  
   const [loading, setLoading] = useState(true);
   
-  // Modal states
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
-  const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [workflowDetailOpen, setWorkflowDetailOpen] = useState(false);
-  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [selectedReport, setSelectedReport] = useState<BatchCompletionReport | null>(null);
-  const [reportDetailOpen, setReportDetailOpen] = useState(false);
+  // View states
+  const [activeView, setActiveView] = useState<'overview' | 'inventory' | 'calendar' | 'analytics'>('overview');
   
-  // Filter states
-  const [showArchivedReports, setShowArchivedReports] = useState(false);
-  const [reportSortBy, setReportSortBy] = useState<'date' | 'workflow' | 'user'>('date');
+  // Modal states
+  const [addInventoryModalOpen, setAddInventoryModalOpen] = useState(false);
+  const [addShoppingItemModalOpen, setAddShoppingItemModalOpen] = useState(false);
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [inventoryTransactionModalOpen, setInventoryTransactionModalOpen] = useState(false);
+  
+  // Form states
+  const [inventoryFormData, setInventoryFormData] = useState({
+    name: '',
+    quantity: 0,
+    unit: 'kg',
+    low_stock_threshold: 0,
+    cost_per_unit: 0,
+    supplier: '',
+    category: '',
+    notes: '',
+  });
+  
+  const [shoppingFormData, setShoppingFormData] = useState({
+    item_name: '',
+    quantity: 0,
+    unit: 'kg',
+    priority: 'normal' as 'urgent' | 'high' | 'normal' | 'low',
+    estimated_cost: 0,
+    supplier: '',
+    notes: '',
+  });
+  
+  const [scheduleFormData, setScheduleFormData] = useState({
+    workflow_id: '',
+    template_id: '',
+    scheduled_date: '',
+    scheduled_time: '',
+    name: '',
+    batch_size_multiplier: 1,
+    assigned_to: '',
+    notes: '',
+  });
+  
+  const [transactionFormData, setTransactionFormData] = useState({
+    item_id: '',
+    type: 'use' as 'add' | 'use' | 'adjust' | 'waste',
+    quantity: 0,
+    cost: 0,
+    notes: '',
+  });
 
   useEffect(() => {
     checkUser();
@@ -122,83 +220,22 @@ export default function Dashboard() {
   useEffect(() => {
     if (!user) return;
 
-    // CRITICAL: Real-time syncing with app - DO NOT REMOVE
-    const workflowsChannel = supabase
-      .channel('workflows-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'workflows',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => fetchWorkflows(user.id)
-      )
+    // Real-time subscriptions
+    const inventoryChannel = supabase
+      .channel('inventory-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `user_id=eq.${user.id}` }, 
+        () => fetchInventoryItems(user.id))
       .subscribe();
 
-    const batchesChannel = supabase
-      .channel('batches-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'batches',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => fetchBatches(user.id)
-      )
-      .subscribe();
-
-    const batchReportsChannel = supabase
-      .channel('batch-reports-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'batch_completion_reports',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => fetchBatchReports(user.id)
-      )
-      .subscribe();
-
-    const envReportsChannel = supabase
-      .channel('env-reports-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'environmental_reports',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => fetchEnvReports(user.id)
-      )
-      .subscribe();
-
-    const photosChannel = supabase
-      .channel('photos-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'photos',
-          filter: `user_id=eq.${user.id}`,
-        },
-        () => fetchPhotos(user.id)
-      )
+    const scheduledChannel = supabase
+      .channel('scheduled-batches-changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'scheduled_batches', filter: `user_id=eq.${user.id}` }, 
+        () => fetchScheduledBatches(user.id))
       .subscribe();
 
     return () => {
-      supabase.removeChannel(workflowsChannel);
-      supabase.removeChannel(batchesChannel);
-      supabase.removeChannel(batchReportsChannel);
-      supabase.removeChannel(envReportsChannel);
-      supabase.removeChannel(photosChannel);
+      supabase.removeChannel(inventoryChannel);
+      supabase.removeChannel(scheduledChannel);
     };
   }, [user]);
 
@@ -221,8 +258,11 @@ export default function Dashboard() {
         fetchWorkflows(userId),
         fetchBatches(userId),
         fetchBatchReports(userId),
-        fetchEnvReports(userId),
-        fetchPhotos(userId),
+        fetchBatchTemplates(userId),
+        fetchInventoryItems(userId),
+        fetchInventoryTransactions(userId),
+        fetchShoppingList(userId),
+        fetchScheduledBatches(userId),
       ]);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -232,124 +272,276 @@ export default function Dashboard() {
   }
 
   async function fetchProfile(userId: string) {
-    const { data: profileData, error: profileError } = await supabase
+    const { data: profileData } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', userId)
       .single();
 
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      return;
-    }
-
     setProfile(profileData);
 
     const isPremium = profileData?.role === 'premium' || profileData?.role === 'admin';
-
     if (isPremium) {
-      const { data: networkData, error: networkError } = await supabase
+      const { data: networkData } = await supabase
         .from('networks')
         .select('*')
         .eq('owner_id', userId)
         .single();
 
-      if (!networkError && networkData) {
-        setNetwork(networkData);
-
-        const { data: membersData, error: membersError } = await supabase
+      if (networkData) {
+        const { data: membersData } = await supabase
           .from('network_members')
-          .select(`
-            *,
-            profiles:user_id (
-              id,
-              email,
-              device_name
-            )
-          `)
+          .select(`*, profiles:user_id (id, email, device_name)`)
           .eq('network_id', networkData.id);
 
-        if (!membersError) {
-          setNetworkMembers(membersData || []);
-        }
+        setNetworkMembers(membersData || []);
       }
     }
   }
 
   async function fetchWorkflows(userId: string) {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('workflows')
       .select('*')
       .eq('user_id', userId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching workflows:', error);
-    } else {
-      console.log('Workflows fetched:', data?.length);
-      setWorkflows(data || []);
-    }
+    setWorkflows(data || []);
   }
 
   async function fetchBatches(userId: string) {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('batches')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching batches:', error);
-    } else {
-      console.log('Batches fetched:', data?.length);
-      setBatches(data || []);
-    }
+    setBatches(data || []);
   }
 
   async function fetchBatchReports(userId: string) {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('batch_completion_reports')
       .select('*')
       .eq('user_id', userId)
       .order('timestamp', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching batch reports:', error);
-    } else {
-      console.log('Batch reports fetched:', data?.length);
-      setBatchReports(data || []);
-    }
+    setBatchReports(data || []);
   }
 
-  async function fetchEnvReports(userId: string) {
+  async function fetchBatchTemplates(userId: string) {
+    const { data } = await supabase
+      .from('batch_templates')
+      .select('*')
+      .eq('created_by', userId)
+      .order('times_used', { ascending: false });
+    setBatchTemplates(data || []);
+  }
+
+  // Inventory functions
+  async function fetchInventoryItems(userId: string) {
     const { data, error } = await supabase
-      .from('environmental_reports')
+      .from('inventory_items')
       .select('*')
       .eq('user_id', userId)
-      .order('timestamp', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching environmental reports:', error);
-    } else {
-      console.log('Environmental reports fetched:', data?.length);
-      setEnvReports(data || []);
-    }
+      .order('name');
+    
+    if (error) console.error('Error fetching inventory:', error);
+    else setInventoryItems(data || []);
   }
 
-  async function fetchPhotos(userId: string) {
+  async function fetchInventoryTransactions(userId: string) {
     const { data, error } = await supabase
-      .from('photos')
+      .from('inventory_transactions')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(10);
+      .limit(50);
+    
+    if (error) console.error('Error fetching transactions:', error);
+    else setInventoryTransactions(data || []);
+  }
 
-    if (error) {
-      console.error('Error fetching photos:', error);
-    } else {
-      console.log('Photos fetched:', data?.length);
-      setPhotos(data || []);
+  async function fetchShoppingList(userId: string) {
+    const { data, error } = await supabase
+      .from('shopping_list')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    
+    if (error) console.error('Error fetching shopping list:', error);
+    else setShoppingList(data || []);
+  }
+
+  async function fetchScheduledBatches(userId: string) {
+    const { data, error } = await supabase
+      .from('scheduled_batches')
+      .select('*')
+      .eq('user_id', userId)
+      .order('scheduled_date');
+    
+    if (error) console.error('Error fetching scheduled batches:', error);
+    else setScheduledBatches(data || []);
+  }
+
+  async function handleAddInventoryItem() {
+    if (!inventoryFormData.name || inventoryFormData.quantity <= 0) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('inventory_items').insert({
+        user_id: user.id,
+        ...inventoryFormData,
+        last_updated: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
+      await fetchInventoryItems(user.id);
+      setAddInventoryModalOpen(false);
+      setInventoryFormData({
+        name: '', quantity: 0, unit: 'kg', low_stock_threshold: 0,
+        cost_per_unit: 0, supplier: '', category: '', notes: '',
+      });
+      alert('Inventory item added successfully!');
+    } catch (error) {
+      console.error('Error adding inventory:', error);
+      alert('Failed to add inventory item');
+    }
+  }
+
+  async function handleInventoryTransaction() {
+    if (!transactionFormData.item_id || transactionFormData.quantity <= 0) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const item = inventoryItems.find(i => i.id === transactionFormData.item_id);
+      if (!item) throw new Error('Item not found');
+
+      let newQuantity = item.quantity;
+      if (transactionFormData.type === 'use' || transactionFormData.type === 'waste') {
+        newQuantity -= transactionFormData.quantity;
+      } else if (transactionFormData.type === 'add') {
+        newQuantity += transactionFormData.quantity;
+      } else {
+        newQuantity = transactionFormData.quantity;
+      }
+
+      // Insert transaction
+      const { error: transError } = await supabase.from('inventory_transactions').insert({
+        user_id: user.id,
+        item_id: transactionFormData.item_id,
+        type: transactionFormData.type,
+        quantity: transactionFormData.quantity,
+        cost: transactionFormData.cost || null,
+        notes: transactionFormData.notes,
+        created_by: user.email,
+        created_at: new Date().toISOString(),
+      });
+
+      if (transError) throw transError;
+
+      // Update item quantity
+      const { error: updateError } = await supabase
+        .from('inventory_items')
+        .update({ 
+          quantity: newQuantity,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', transactionFormData.item_id);
+
+      if (updateError) throw updateError;
+
+      await fetchInventoryItems(user.id);
+      await fetchInventoryTransactions(user.id);
+      setInventoryTransactionModalOpen(false);
+      setTransactionFormData({ item_id: '', type: 'use', quantity: 0, cost: 0, notes: '' });
+      alert('Transaction recorded successfully!');
+    } catch (error) {
+      console.error('Error recording transaction:', error);
+      alert('Failed to record transaction');
+    }
+  }
+
+  async function handleAddShoppingItem() {
+    if (!shoppingFormData.item_name || shoppingFormData.quantity <= 0) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from('shopping_list').insert({
+        user_id: user.id,
+        ...shoppingFormData,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
+      await fetchShoppingList(user.id);
+      setAddShoppingItemModalOpen(false);
+      setShoppingFormData({
+        item_name: '', quantity: 0, unit: 'kg', priority: 'normal',
+        estimated_cost: 0, supplier: '', notes: '',
+      });
+      alert('Item added to shopping list!');
+    } catch (error) {
+      console.error('Error adding shopping item:', error);
+      alert('Failed to add shopping item');
+    }
+  }
+
+  async function updateShoppingItemStatus(id: string, status: 'pending' | 'ordered' | 'received') {
+    const { error } = await supabase
+      .from('shopping_list')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (!error) await fetchShoppingList(user.id);
+  }
+
+  async function handleScheduleBatch() {
+    if (!scheduleFormData.workflow_id || !scheduleFormData.scheduled_date || !scheduleFormData.name) {
+      alert('Please fill in required fields');
+      return;
+    }
+
+    try {
+      const assignedMember = networkMembers.find(m => m.user_id === scheduleFormData.assigned_to);
+      
+      const { error } = await supabase.from('scheduled_batches').insert({
+        user_id: user.id,
+        workflow_id: scheduleFormData.workflow_id,
+        template_id: scheduleFormData.template_id || null,
+        scheduled_date: scheduleFormData.scheduled_date,
+        scheduled_time: scheduleFormData.scheduled_time || null,
+        name: scheduleFormData.name,
+        batch_size_multiplier: scheduleFormData.batch_size_multiplier,
+        assigned_to: scheduleFormData.assigned_to || null,
+        assigned_to_name: assignedMember ? (assignedMember.profiles?.device_name || assignedMember.profiles?.email) : null,
+        status: 'scheduled',
+        notes: scheduleFormData.notes,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) throw error;
+
+      await fetchScheduledBatches(user.id);
+      setScheduleModalOpen(false);
+      setScheduleFormData({
+        workflow_id: '', template_id: '', scheduled_date: '', scheduled_time: '',
+        name: '', batch_size_multiplier: 1, assigned_to: '', notes: '',
+      });
+      alert('Batch scheduled successfully!');
+    } catch (error) {
+      console.error('Error scheduling batch:', error);
+      alert('Failed to schedule batch');
     }
   }
 
@@ -358,166 +550,85 @@ export default function Dashboard() {
     window.location.href = '/';
   }
 
-  async function archiveReport(reportId: string, table: string) {
-    await supabase.from(table).update({ archived: true }).eq('id', reportId);
-    if (table === 'batch_completion_reports') {
-      await fetchBatchReports(user.id);
-    } else {
-      await fetchEnvReports(user.id);
-    }
-  }
-
-  async function unarchiveReport(reportId: string, table: string) {
-    await supabase.from(table).update({ archived: false }).eq('id', reportId);
-    if (table === 'batch_completion_reports') {
-      await fetchBatchReports(user.id);
-    } else {
-      await fetchEnvReports(user.id);
-    }
-  }
-
-  function openAssignModal(workflow: Workflow) {
-    setSelectedWorkflow(workflow);
-    setAssignModalOpen(true);
-  }
-
-  async function handleAssignWorkflow(targetUserId: string) {
-    if (!selectedWorkflow) return;
-
-    try {
-      const targetMember = networkMembers.find(m => m.user_id === targetUserId);
-      
-      const { error } = await supabase
-        .from('workflows')
-        .update({
-          claimed_by: targetUserId,
-          claimed_by_name: targetMember?.profiles?.device_name || targetMember?.profiles?.email,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', selectedWorkflow.id);
-
-      if (!error) {
-        await fetchWorkflows(user.id);
-        setAssignModalOpen(false);
-        alert('Workflow assigned successfully!');
-      } else {
-        alert('Error assigning workflow: ' + error.message);
-      }
-    } catch (error) {
-      console.error('Error assigning workflow:', error);
-      alert('Error assigning workflow');
-    }
-  }
-
-  async function handleInviteUser() {
-    if (!inviteEmail || !network) return;
-
-    try {
-      alert(`Invitation sent to ${inviteEmail}! They'll need to sign in and join your network.`);
-      setInviteEmail('');
-      setInviteModalOpen(false);
-    } catch (error) {
-      console.error('Error inviting user:', error);
-      alert('Error sending invitation');
-    }
-  }
-
-  async function handleRemoveMember(memberId: string) {
-    if (!confirm('Are you sure you want to remove this member?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('network_members')
-        .delete()
-        .eq('id', memberId);
-
-      if (!error) {
-        await fetchProfile(user.id);
-        alert('Member removed successfully');
-      } else {
-        alert('Error removing member: ' + error.message);
-      }
-    } catch (error) {
-      console.error('Error removing member:', error);
-      alert('Error removing member');
-    }
-  }
-
-  async function handleRefresh() {
-    setLoading(true);
-    await fetchData(user.id);
-    setLoading(false);
-  }
-
-  async function exportReportsCSV() {
-    const visibleReports = showArchivedReports ? batchReports : batchReports.filter(r => !r.archived);
-    let csv = 'Date,Time,Batch,Workflow,User,Size,Duration,Cost,Yield,Notes\n';
-    visibleReports.forEach(r => {
-      const duration = r.actual_duration ? Math.round(r.actual_duration / 60) : '';
-      const cost = r.total_cost || '';
-      const yieldStr = r.yield_amount && r.yield_unit ? `${r.yield_amount}${r.yield_unit}` : '';
-      const notes = (r.notes || '').replace(/"/g, '""');
-      csv += `${r.date},${r.time},"${r.batch_name}","${r.workflow_name}",${r.completed_by},${r.batch_size_multiplier}x,${duration},${cost},${yieldStr},"${notes}"\n`;
-    });
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `batch-reports-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  }
-
   if (loading) {
     return (
       <div style={styles.container}>
-        <div style={styles.loading}>Loading...</div>
+        <div style={styles.loading}>Loading Enhanced Dashboard...</div>
       </div>
     );
   }
 
   const isPremium = profile?.role === 'premium' || profile?.role === 'admin';
+
+  // Analytics calculations
+  const lowStockItems = inventoryItems.filter(item => 
+    item.low_stock_threshold && item.quantity <= item.low_stock_threshold
+  );
   
-  const activeBatches = batches.filter(b => {
-    if (!b.steps) return true;
-    if (!Array.isArray(b.steps)) return true;
-    const currentIndex = b.current_step_index ?? 0;
-    return currentIndex < b.steps.length;
-  });
+  const totalInventoryValue = inventoryItems.reduce((sum, item) => 
+    sum + (item.quantity * (item.cost_per_unit || 0)), 0
+  );
 
-  const totalReports = batchReports.length + envReports.length;
-  const visibleBatchReports = showArchivedReports ? batchReports : batchReports.filter(r => !r.archived);
-  const visibleEnvReports = showArchivedReports ? envReports : envReports.filter(r => !r.archived);
+  const last30Days = new Date();
+  last30Days.setDate(last30Days.getDate() - 30);
+  const recentReports = batchReports.filter(r => new Date(r.timestamp) >= last30Days);
+  
+  const totalRevenue30d = recentReports.reduce((sum, r) => {
+    const template = batchTemplates.find(t => t.workflow_name === r.workflow_name);
+    return sum + ((template?.selling_price || 0) * r.batch_size_multiplier);
+  }, 0);
+  
+  const totalCost30d = recentReports.reduce((sum, r) => sum + (r.total_cost || 0), 0);
+  const profit30d = totalRevenue30d - totalCost30d;
+  const profitMargin30d = totalRevenue30d > 0 ? (profit30d / totalRevenue30d) * 100 : 0;
 
-  // Analytics
-  const today = new Date();
-  const thisWeekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
-  const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const lastYearToday = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+  // Calendar data
+  const getCalendarDays = () => {
+    const year = selectedDate.getFullYear();
+    const month = selectedDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = firstDay.getDay();
+    
+    const days = [];
+    for (let i = 0; i < startingDayOfWeek; i++) {
+      days.push(null);
+    }
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+    return days;
+  };
 
-  const batchesThisWeek = batchReports.filter(r => new Date(r.timestamp) >= thisWeekStart).length;
-  const batchesThisMonth = batchReports.filter(r => new Date(r.timestamp) >= thisMonthStart).length;
-  const batchesLastYearToday = batchReports.filter(r => {
-    const rDate = new Date(r.timestamp);
-    return rDate.getFullYear() === lastYearToday.getFullYear() && 
-           rDate.getMonth() === lastYearToday.getMonth() && 
-           rDate.getDate() === lastYearToday.getDate();
-  }).length;
+  const calendarDays = getCalendarDays();
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-  const avgBatchDuration = batchReports.filter(r => r.actual_duration).reduce((sum, r) => sum + (r.actual_duration || 0), 0) / (batchReports.filter(r => r.actual_duration).length || 1);
-  const totalCost = batchReports.reduce((sum, r) => sum + (r.total_cost || 0), 0);
+  const getBatchesForDate = (date: Date) => {
+    const dateStr = date.toISOString().split('T')[0];
+    return scheduledBatches.filter(b => b.scheduled_date === dateStr);
+  };
 
-  // Team activity
-  const recentActivity = batchReports.slice(0, 10).map(r => ({
-    user: r.completed_by,
-    action: `Completed ${r.batch_name}`,
-    time: new Date(r.timestamp).toLocaleString(),
-  }));
+  // Workflow popularity
+  const workflowStats = batchReports.reduce((acc, r) => {
+    if (!acc[r.workflow_name]) {
+      acc[r.workflow_name] = { count: 0, totalDuration: 0, totalCost: 0 };
+    }
+    acc[r.workflow_name].count++;
+    acc[r.workflow_name].totalDuration += r.actual_duration || 0;
+    acc[r.workflow_name].totalCost += r.total_cost || 0;
+    return acc;
+  }, {} as Record<string, { count: number; totalDuration: number; totalCost: number }>);
 
-  // Sort reports
-  let sortedReports = [...visibleBatchReports];
-  if (reportSortBy === 'workflow') sortedReports.sort((a, b) => a.workflow_name.localeCompare(b.workflow_name));
-  else if (reportSortBy === 'user') sortedReports.sort((a, b) => a.completed_by.localeCompare(b.completed_by));
-  else sortedReports.sort((a, b) => b.timestamp - a.timestamp);
+  const topWorkflows = Object.entries(workflowStats)
+    .map(([name, stats]) => ({
+      name,
+      count: stats.count,
+      avgDuration: stats.totalDuration / stats.count / 60,
+      avgCost: stats.totalCost / stats.count,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
 
   return (
     <div style={styles.container}>
@@ -525,564 +636,914 @@ export default function Dashboard() {
       <header style={styles.header}>
         <div style={styles.headerContent}>
           <div>
-            <h1 style={styles.title}>Dashboard</h1>
-            {isPremium && (
-              <p style={styles.premiumBadge}>👑 Premium Account</p>
-            )}
+            <h1 style={styles.title}>Enhanced Dashboard</h1>
+            {isPremium && <p style={styles.premiumBadge}>👑 Premium Account</p>}
           </div>
           <div style={styles.headerButtons}>
-            <button onClick={handleRefresh} style={styles.refreshButton}>
-              🔄 Refresh
-            </button>
-            <Link href="/account" style={styles.linkButton}>
-              Account
-            </Link>
-            <button onClick={signOut} style={styles.signOutButton}>
-              Sign Out
-            </button>
+            <Link href="/account" style={styles.linkButton}>Account</Link>
+            <button onClick={signOut} style={styles.signOutButton}>Sign Out</button>
           </div>
         </div>
       </header>
 
+      {/* Navigation Tabs */}
+      <div style={styles.tabBar}>
+        <button 
+          style={{...styles.tab, ...(activeView === 'overview' ? styles.tabActive : {})}}
+          onClick={() => setActiveView('overview')}
+        >
+          📊 Overview
+        </button>
+        <button 
+          style={{...styles.tab, ...(activeView === 'inventory' ? styles.tabActive : {})}}
+          onClick={() => setActiveView('inventory')}
+        >
+          📦 Inventory
+        </button>
+        <button 
+          style={{...styles.tab, ...(activeView === 'calendar' ? styles.tabActive : {})}}
+          onClick={() => setActiveView('calendar')}
+        >
+          📅 Calendar
+        </button>
+        <button 
+          style={{...styles.tab, ...(activeView === 'analytics' ? styles.tabActive : {})}}
+          onClick={() => setActiveView('analytics')}
+        >
+          📈 Analytics
+        </button>
+      </div>
+
       <div style={styles.content}>
-        {/* User Welcome */}
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>
-            Welcome back, {user?.user_metadata?.full_name || user?.email}!
-          </h2>
-          <div style={styles.userInfo}>
-            <p><strong>Email:</strong> {user?.email}</p>
-            <p><strong>Account created:</strong> {new Date(user?.created_at).toLocaleDateString()}</p>
-            <p><strong>Subscription:</strong> {profile?.subscription_status || 'trial'}</p>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div style={styles.statsGrid}>
-          <div style={styles.statCard}>
-            <div style={styles.statNumber}>{workflows.length}</div>
-            <div style={styles.statLabel}>Workflows</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statNumber}>{batches.length}</div>
-            <div style={styles.statLabel}>Total Batches</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statNumber}>{activeBatches.length}</div>
-            <div style={styles.statLabel}>Active Batches</div>
-          </div>
-          <div style={styles.statCard}>
-            <div style={styles.statNumber}>{totalReports}</div>
-            <div style={styles.statLabel}>Reports</div>
-          </div>
-        </div>
-
-        {/* Analytics */}
-        <div style={styles.card}>
-          <h2 style={styles.cardTitle}>📊 Analytics</h2>
-          <div style={styles.analyticsGrid}>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>This Week</div>
-              <div style={styles.analyticValue}>{batchesThisWeek} batches</div>
-            </div>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>This Month</div>
-              <div style={styles.analyticValue}>{batchesThisMonth} batches</div>
-            </div>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>Same Day Last Year</div>
-              <div style={styles.analyticValue}>{batchesLastYearToday} batches</div>
-            </div>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>Avg Duration</div>
-              <div style={styles.analyticValue}>{Math.round(avgBatchDuration / 60)} min</div>
-            </div>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>Total Cost</div>
-              <div style={styles.analyticValue}>${totalCost.toFixed(2)}</div>
-            </div>
-            <div style={styles.analyticItem}>
-              <div style={styles.analyticLabel}>Avg Cost/Batch</div>
-              <div style={styles.analyticValue}>${(totalCost / (batchReports.length || 1)).toFixed(2)}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Team Activity (Premium) */}
-        {isPremium && recentActivity.length > 0 && (
-          <div style={styles.card}>
-            <h2 style={styles.cardTitle}>👥 Team Activity</h2>
-            <div style={styles.list}>
-              {recentActivity.map((activity, i) => (
-                <div key={i} style={styles.activityItem}>
-                  <div>
-                    <div style={styles.activityUser}>{activity.user}</div>
-                    <div style={styles.activityAction}>{activity.action}</div>
-                  </div>
-                  <div style={styles.activityTime}>{activity.time}</div>
+        {/* OVERVIEW VIEW */}
+        {activeView === 'overview' && (
+          <>
+            <div style={styles.statsGrid}>
+              <div style={styles.statCard}>
+                <div style={styles.statNumber}>{workflows.length}</div>
+                <div style={styles.statLabel}>Workflows</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statNumber}>{inventoryItems.length}</div>
+                <div style={styles.statLabel}>Inventory Items</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={{...styles.statNumber, color: lowStockItems.length > 0 ? '#ef4444' : '#10b981'}}>
+                  {lowStockItems.length}
                 </div>
-              ))}
+                <div style={styles.statLabel}>Low Stock Alerts</div>
+              </div>
+              <div style={styles.statCard}>
+                <div style={styles.statNumber}>{scheduledBatches.filter(b => b.status === 'scheduled').length}</div>
+                <div style={styles.statLabel}>Scheduled Batches</div>
+              </div>
             </div>
-          </div>
+
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>30-Day Performance</h2>
+              <div style={styles.analyticsGrid}>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Batches Completed</div>
+                  <div style={styles.analyticValue}>{recentReports.length}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Total Revenue</div>
+                  <div style={styles.analyticValue}>${totalRevenue30d.toFixed(2)}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Total Cost</div>
+                  <div style={styles.analyticValue}>${totalCost30d.toFixed(2)}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Profit</div>
+                  <div style={{...styles.analyticValue, color: profit30d >= 0 ? '#10b981' : '#ef4444'}}>
+                    ${profit30d.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {lowStockItems.length > 0 && (
+              <div style={styles.alertCard}>
+                <h3 style={styles.alertTitle}>⚠️ Low Stock Alerts</h3>
+                <div style={styles.list}>
+                  {lowStockItems.map(item => (
+                    <div key={item.id} style={styles.alertItem}>
+                      <div>
+                        <div style={styles.itemName}>{item.name}</div>
+                        <div style={styles.itemMeta}>
+                          Current: {item.quantity} {item.unit} | Threshold: {item.low_stock_threshold} {item.unit}
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          setShoppingFormData({
+                            ...shoppingFormData,
+                            item_name: item.name,
+                            quantity: (item.low_stock_threshold || 0) * 2,
+                            unit: item.unit,
+                          });
+                          setAddShoppingItemModalOpen(true);
+                        }}
+                        style={styles.addToListButton}
+                      >
+                        Add to Shopping List
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* Network Management (Premium Only) */}
-        {isPremium && (
-          <div style={styles.card}>
-            <div style={styles.cardHeader}>
-              <h2 style={styles.cardTitle}>Network Members</h2>
-              <button
-                onClick={() => setInviteModalOpen(true)}
-                style={styles.primaryButton}
-              >
-                + Invite User
-              </button>
+        {/* INVENTORY VIEW */}
+        {activeView === 'inventory' && (
+          <>
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <h2 style={styles.cardTitle}>Inventory Management</h2>
+                <div style={styles.headerButtons}>
+                  <button onClick={() => setInventoryTransactionModalOpen(true)} style={styles.secondaryButton}>
+                    📝 Record Transaction
+                  </button>
+                  <button onClick={() => setAddInventoryModalOpen(true)} style={styles.primaryButton}>
+                    + Add Item
+                  </button>
+                </div>
+              </div>
+
+              <div style={styles.inventoryStats}>
+                <div style={styles.inventoryStat}>
+                  <div style={styles.inventoryStatLabel}>Total Items</div>
+                  <div style={styles.inventoryStatValue}>{inventoryItems.length}</div>
+                </div>
+                <div style={styles.inventoryStat}>
+                  <div style={styles.inventoryStatLabel}>Total Value</div>
+                  <div style={styles.inventoryStatValue}>${totalInventoryValue.toFixed(2)}</div>
+                </div>
+                <div style={styles.inventoryStat}>
+                  <div style={styles.inventoryStatLabel}>Low Stock Items</div>
+                  <div style={{...styles.inventoryStatValue, color: '#ef4444'}}>{lowStockItems.length}</div>
+                </div>
+              </div>
+
+              {inventoryItems.length === 0 ? (
+                <p style={styles.emptyText}>No inventory items yet. Add items to start tracking!</p>
+              ) : (
+                <div style={styles.inventoryGrid}>
+                  {inventoryItems.map(item => {
+                    const isLowStock = item.low_stock_threshold && item.quantity <= item.low_stock_threshold;
+                    const itemValue = item.quantity * (item.cost_per_unit || 0);
+                    
+                    return (
+                      <div key={item.id} style={{...styles.inventoryCard, borderColor: isLowStock ? '#ef4444' : '#e5e7eb'}}>
+                        <div style={styles.inventoryCardHeader}>
+                          <div style={styles.inventoryItemName}>{item.name}</div>
+                          {item.category && <div style={styles.categoryBadge}>{item.category}</div>}
+                        </div>
+                        
+                        <div style={styles.inventoryQuantity}>
+                          <span style={{fontSize: '1.5rem', fontWeight: '600', color: isLowStock ? '#ef4444' : '#111827'}}>
+                            {item.quantity}
+                          </span>
+                          <span style={{marginLeft: '0.5rem', color: '#6b7280'}}>{item.unit}</span>
+                        </div>
+                        
+                        {item.low_stock_threshold && (
+                          <div style={{...styles.inventoryMeta, color: isLowStock ? '#ef4444' : '#6b7280'}}>
+                            {isLowStock ? '⚠️ Low Stock' : '✓ In Stock'} (Threshold: {item.low_stock_threshold} {item.unit})
+                          </div>
+                        )}
+                        
+                        <div style={styles.inventoryMeta}>
+                          {item.cost_per_unit && <div>Cost: ${item.cost_per_unit}/{item.unit}</div>}
+                          {itemValue > 0 && <div>Value: ${itemValue.toFixed(2)}</div>}
+                          {item.supplier && <div>Supplier: {item.supplier}</div>}
+                        </div>
+                        
+                        {item.notes && <div style={styles.inventoryNotes}>{item.notes}</div>}
+                        
+                        <div style={styles.inventoryActions}>
+                          <button 
+                            onClick={() => {
+                              setTransactionFormData({...transactionFormData, item_id: item.id, type: 'use'});
+                              setInventoryTransactionModalOpen(true);
+                            }}
+                            style={styles.inventoryActionButton}
+                          >
+                            Use
+                          </button>
+                          <button 
+                            onClick={() => {
+                              setTransactionFormData({...transactionFormData, item_id: item.id, type: 'add'});
+                              setInventoryTransactionModalOpen(true);
+                            }}
+                            style={styles.inventoryActionButton}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
-            {networkMembers.length === 0 ? (
-              <p style={styles.emptyText}>
-                No connected users yet. Invite team members to share workflows and collaborate.
-              </p>
-            ) : (
-              <div style={styles.list}>
-                {networkMembers.map((member) => (
-                  <div key={member.id} style={styles.memberItem}>
-                    <div>
-                      <div style={styles.memberName}>
-                        {member.profiles?.device_name || member.profiles?.email}
-                        {member.role === 'owner' && (
-                          <span style={styles.ownerBadge}>Owner</span>
+            {/* Shopping List */}
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <h2 style={styles.cardTitle}>🛒 Shopping List</h2>
+                <button onClick={() => setAddShoppingItemModalOpen(true)} style={styles.primaryButton}>
+                  + Add Item
+                </button>
+              </div>
+
+              {shoppingList.length === 0 ? (
+                <p style={styles.emptyText}>Shopping list is empty.</p>
+              ) : (
+                <div style={styles.shoppingColumns}>
+                  <div style={styles.shoppingColumn}>
+                    <h3 style={styles.shoppingColumnTitle}>📋 Pending</h3>
+                    {shoppingList.filter(i => i.status === 'pending').map(item => (
+                      <div key={item.id} style={{...styles.shoppingCard, borderLeftColor: 
+                        item.priority === 'urgent' ? '#ef4444' :
+                        item.priority === 'high' ? '#f59e0b' : '#3b82f6'
+                      }}>
+                        <div style={styles.shoppingItemName}>{item.item_name}</div>
+                        <div style={styles.shoppingItemMeta}>
+                          {item.quantity} {item.unit}
+                          {item.estimated_cost && ` • $${item.estimated_cost.toFixed(2)}`}
+                        </div>
+                        {item.supplier && <div style={styles.shoppingSupplier}>Supplier: {item.supplier}</div>}
+                        <div style={styles.shoppingActions}>
+                          <button onClick={() => updateShoppingItemStatus(item.id, 'ordered')} style={styles.shoppingActionButton}>
+                            Mark Ordered
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={styles.shoppingColumn}>
+                    <h3 style={styles.shoppingColumnTitle}>📦 Ordered</h3>
+                    {shoppingList.filter(i => i.status === 'ordered').map(item => (
+                      <div key={item.id} style={styles.shoppingCard}>
+                        <div style={styles.shoppingItemName}>{item.item_name}</div>
+                        <div style={styles.shoppingItemMeta}>{item.quantity} {item.unit}</div>
+                        <button onClick={() => updateShoppingItemStatus(item.id, 'received')} style={styles.shoppingActionButton}>
+                          Mark Received
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={styles.shoppingColumn}>
+                    <h3 style={styles.shoppingColumnTitle}>✅ Received</h3>
+                    {shoppingList.filter(i => i.status === 'received').slice(0, 5).map(item => (
+                      <div key={item.id} style={{...styles.shoppingCard, opacity: 0.7}}>
+                        <div style={styles.shoppingItemName}>{item.item_name}</div>
+                        <div style={styles.shoppingItemMeta}>{item.quantity} {item.unit}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Recent Transactions */}
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>Recent Transactions</h2>
+              {inventoryTransactions.length === 0 ? (
+                <p style={styles.emptyText}>No transactions yet.</p>
+              ) : (
+                <div style={styles.transactionsList}>
+                  {inventoryTransactions.slice(0, 10).map(trans => {
+                    const item = inventoryItems.find(i => i.id === trans.item_id);
+                    return (
+                      <div key={trans.id} style={styles.transactionItem}>
+                        <div style={styles.transactionIcon}>
+                          {trans.type === 'add' ? '➕' : trans.type === 'use' ? '➖' : trans.type === 'waste' ? '🗑️' : '🔄'}
+                        </div>
+                        <div style={styles.transactionContent}>
+                          <div style={styles.transactionName}>
+                            {trans.type.toUpperCase()}: {item?.name || 'Unknown Item'}
+                          </div>
+                          <div style={styles.transactionMeta}>
+                            {trans.quantity} {item?.unit} • {trans.created_by} • {new Date(trans.created_at).toLocaleString()}
+                          </div>
+                          {trans.notes && <div style={styles.transactionNotes}>{trans.notes}</div>}
+                        </div>
+                        {trans.cost && (
+                          <div style={styles.transactionCost}>${trans.cost.toFixed(2)}</div>
                         )}
                       </div>
-                      <div style={styles.memberEmail}>{member.profiles?.email}</div>
-                      <div style={styles.memberDate}>
-                        Last active: {new Date(member.last_active).toLocaleDateString()}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* CALENDAR VIEW */}
+        {activeView === 'calendar' && (
+          <>
+            <div style={styles.card}>
+              <div style={styles.cardHeader}>
+                <h2 style={styles.cardTitle}>Production Calendar</h2>
+                <button onClick={() => setScheduleModalOpen(true)} style={styles.primaryButton}>
+                  + Schedule Batch
+                </button>
+              </div>
+
+              <div style={styles.calendarControls}>
+                <button 
+                  onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1))}
+                  style={styles.calendarNavButton}
+                >
+                  ◀ Previous
+                </button>
+                <h3 style={styles.calendarMonth}>
+                  {monthNames[selectedDate.getMonth()]} {selectedDate.getFullYear()}
+                </h3>
+                <button 
+                  onClick={() => setSelectedDate(new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1))}
+                  style={styles.calendarNavButton}
+                >
+                  Next ▶
+                </button>
+              </div>
+
+              <div style={styles.calendarGrid}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                  <div key={day} style={styles.calendarDayHeader}>{day}</div>
+                ))}
+                
+                {calendarDays.map((date, index) => {
+                  if (!date) return <div key={`empty-${index}`} style={styles.calendarDayEmpty}></div>;
+                  
+                  const batchesOnDay = getBatchesForDate(date);
+                  const isToday = date.toDateString() === new Date().toDateString();
+                  
+                  return (
+                    <div 
+                      key={date.toISOString()} 
+                      style={{
+                        ...styles.calendarDay,
+                        backgroundColor: isToday ? '#e0f2fe' : '#ffffff',
+                        borderColor: isToday ? '#0284c7' : '#e5e7eb',
+                      }}
+                    >
+                      <div style={styles.calendarDayNumber}>{date.getDate()}</div>
+                      {batchesOnDay.length > 0 && (
+                        <div style={styles.calendarBadge}>{batchesOnDay.length}</div>
+                      )}
+                      <div style={styles.calendarBatches}>
+                        {batchesOnDay.slice(0, 2).map(batch => (
+                          <div 
+                            key={batch.id} 
+                            style={{
+                              ...styles.calendarBatchItem,
+                              backgroundColor: 
+                                batch.status === 'completed' ? '#d1fae5' :
+                                batch.status === 'in_progress' ? '#fef3c7' :
+                                batch.status === 'cancelled' ? '#fee2e2' : '#dbeafe'
+                            }}
+                            title={`${batch.name}${batch.scheduled_time ? ` at ${batch.scheduled_time}` : ''}`}
+                          >
+                            {batch.name.substring(0, 15)}
+                            {batch.name.length > 15 ? '...' : ''}
+                          </div>
+                        ))}
+                        {batchesOnDay.length > 2 && (
+                          <div style={styles.calendarMoreBadge}>+{batchesOnDay.length - 2} more</div>
+                        )}
                       </div>
                     </div>
-                    {member.role !== 'owner' && (
-                      <button
-                        onClick={() => handleRemoveMember(member.id)}
-                        style={styles.removeButton}
-                      >
-                        Remove
-                      </button>
-                    )}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Upcoming Scheduled Batches */}
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>Upcoming Scheduled Batches</h2>
+              {scheduledBatches.filter(b => b.status === 'scheduled').length === 0 ? (
+                <p style={styles.emptyText}>No upcoming batches scheduled.</p>
+              ) : (
+                <div style={styles.list}>
+                  {scheduledBatches
+                    .filter(b => b.status === 'scheduled')
+                    .slice(0, 10)
+                    .map(batch => (
+                      <div key={batch.id} style={styles.scheduledBatchItem}>
+                        <div style={styles.scheduledBatchMain}>
+                          <div style={styles.itemName}>{batch.name}</div>
+                          <div style={styles.itemMeta}>
+                            📅 {new Date(batch.scheduled_date).toLocaleDateString()}
+                            {batch.scheduled_time && ` at ${batch.scheduled_time}`}
+                            {batch.assigned_to_name && ` • 👤 ${batch.assigned_to_name}`}
+                            • {batch.batch_size_multiplier}x
+                          </div>
+                          {batch.notes && <div style={styles.batchNotes}>{batch.notes}</div>}
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            const { error } = await supabase
+                              .from('scheduled_batches')
+                              .update({ status: 'in_progress' })
+                              .eq('id', batch.id);
+                            if (!error) await fetchScheduledBatches(user.id);
+                          }}
+                          style={styles.startButton}
+                        >
+                          Start
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* ANALYTICS VIEW */}
+        {activeView === 'analytics' && (
+          <>
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>📊 Advanced Analytics</h2>
+              
+              <h3 style={styles.sectionTitle}>Top 5 Workflows by Completion</h3>
+              <div style={styles.analyticsTable}>
+                <div style={styles.tableHeader}>
+                  <div style={styles.tableCell}>Workflow</div>
+                  <div style={styles.tableCell}>Completions</div>
+                  <div style={styles.tableCell}>Avg Duration</div>
+                  <div style={styles.tableCell}>Avg Cost</div>
+                </div>
+                {topWorkflows.map(wf => (
+                  <div key={wf.name} style={styles.tableRow}>
+                    <div style={styles.tableCell}>{wf.name}</div>
+                    <div style={styles.tableCell}>{wf.count}</div>
+                    <div style={styles.tableCell}>{Math.round(wf.avgDuration)} min</div>
+                    <div style={styles.tableCell}>${wf.avgCost.toFixed(2)}</div>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>💰 Revenue & Profitability</h2>
+              <div style={styles.analyticsGrid}>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>All-Time Revenue</div>
+                  <div style={styles.analyticValue}>
+                    ${batchTemplates.reduce((sum, t) => sum + ((t.selling_price || 0) * t.times_used), 0).toFixed(2)}
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>All-Time Costs</div>
+                  <div style={styles.analyticValue}>
+                    ${batchReports.reduce((sum, r) => sum + (r.total_cost || 0), 0).toFixed(2)}
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>30-Day Profit</div>
+                  <div style={{...styles.analyticValue, color: profit30d >= 0 ? '#10b981' : '#ef4444'}}>
+                    ${profit30d.toFixed(2)}
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>30-Day Margin</div>
+                  <div style={{...styles.analyticValue, color: profitMargin30d >= 20 ? '#10b981' : '#f59e0b'}}>
+                    {profitMargin30d.toFixed(1)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>📦 Inventory Insights</h2>
+              <div style={styles.analyticsGrid}>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Total Items</div>
+                  <div style={styles.analyticValue}>{inventoryItems.length}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Inventory Value</div>
+                  <div style={styles.analyticValue}>${totalInventoryValue.toFixed(2)}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Low Stock Alerts</div>
+                  <div style={{...styles.analyticValue, color: '#ef4444'}}>{lowStockItems.length}</div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Transactions (30d)</div>
+                  <div style={styles.analyticValue}>
+                    {inventoryTransactions.filter(t => {
+                      const transDate = new Date(t.created_at);
+                      return transDate >= last30Days;
+                    }).length}
+                  </div>
+                </div>
+              </div>
+
+              <h3 style={{...styles.sectionTitle, marginTop: '2rem'}}>Inventory by Category</h3>
+              <div style={styles.categoryBreakdown}>
+                {Object.entries(
+                  inventoryItems.reduce((acc, item) => {
+                    const cat = item.category || 'Uncategorized';
+                    if (!acc[cat]) acc[cat] = { count: 0, value: 0 };
+                    acc[cat].count++;
+                    acc[cat].value += item.quantity * (item.cost_per_unit || 0);
+                    return acc;
+                  }, {} as Record<string, { count: number; value: number }>)
+                ).map(([category, data]) => (
+                  <div key={category} style={styles.categoryItem}>
+                    <div style={styles.categoryName}>{category}</div>
+                    <div style={styles.categoryStats}>
+                      <span>{data.count} items</span>
+                      <span>${data.value.toFixed(2)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={styles.card}>
+              <h2 style={styles.cardTitle}>📅 Production Trends</h2>
+              <div style={styles.analyticsGrid}>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Batches This Week</div>
+                  <div style={styles.analyticValue}>
+                    {batchReports.filter(r => {
+                      const reportDate = new Date(r.timestamp);
+                      const weekStart = new Date();
+                      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+                      return reportDate >= weekStart;
+                    }).length}
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Batches This Month</div>
+                  <div style={styles.analyticValue}>
+                    {batchReports.filter(r => {
+                      const reportDate = new Date(r.timestamp);
+                      const now = new Date();
+                      return reportDate.getMonth() === now.getMonth() && 
+                             reportDate.getFullYear() === now.getFullYear();
+                    }).length}
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Avg Batch Duration</div>
+                  <div style={styles.analyticValue}>
+                    {Math.round(batchReports.filter(r => r.actual_duration).reduce((sum, r) => 
+                      sum + (r.actual_duration || 0), 0) / 
+                      (batchReports.filter(r => r.actual_duration).length || 1) / 60)} min
+                  </div>
+                </div>
+                <div style={styles.analyticItem}>
+                  <div style={styles.analyticLabel}>Scheduled Ahead</div>
+                  <div style={styles.analyticValue}>
+                    {scheduledBatches.filter(b => b.status === 'scheduled').length}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
-
-        {/* Workflows Section */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>Your Workflows</h2>
-            <span style={styles.countBadge}>{workflows.length} total</span>
-          </div>
-
-          {workflows.length === 0 ? (
-            <p style={styles.emptyText}>No workflows yet. Create one in the mobile app!</p>
-          ) : (
-            <div style={styles.list}>
-              {workflows.map((workflow) => (
-                <div 
-                  key={workflow.id} 
-                  style={styles.workflowItemClickable}
-                  onClick={() => {
-                    setSelectedWorkflow(workflow);
-                    setWorkflowDetailOpen(true);
-                  }}
-                >
-                  <div style={styles.workflowInfo}>
-                    <div style={styles.itemName}>{workflow.name}</div>
-                    <div style={styles.itemMeta}>
-                      {workflow.steps?.length || 0} steps
-                    </div>
-                    {workflow.claimed_by ? (
-                      <div style={styles.assignedBadge}>
-                        ✓ Assigned to: {workflow.claimed_by_name || 'Unknown'}
-                      </div>
-                    ) : (
-                      <div style={styles.unassignedBadge}>
-                        ⚠ Unassigned
-                      </div>
-                    )}
-                    <div style={styles.itemDate}>
-                      Created: {new Date(workflow.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-                  <div style={styles.clickHint}>Click to manage →</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* All Batches Section */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>All Batches</h2>
-            <span style={styles.countBadge}>{batches.length} total ({activeBatches.length} active)</span>
-          </div>
-
-          {batches.length === 0 ? (
-            <p style={styles.emptyText}>No batches. Start a workflow in the mobile app!</p>
-          ) : (
-            <div style={styles.list}>
-              {batches.map((batch) => {
-                const totalSteps = batch.steps?.length || 0;
-                const currentStep = (batch.current_step_index ?? 0) + 1;
-                const progress = totalSteps > 0 ? (currentStep / totalSteps) * 100 : 0;
-                const isActive = currentStep <= totalSteps && totalSteps > 0;
-
-                return (
-                  <div key={batch.id} style={styles.batchItem}>
-                    <div style={styles.itemName}>{batch.name}</div>
-                    <div style={styles.itemMeta}>
-                      {totalSteps > 0 ? `Step ${currentStep} of ${totalSteps}` : 'No steps defined'} 
-                      {isActive ? ' - Active' : ' - Completed'}
-                    </div>
-                    {totalSteps > 0 && (
-                      <div style={styles.progressBarContainer}>
-                        <div 
-                          style={{...styles.progressBar, width: `${progress}%`}}
-                        />
-                      </div>
-                    )}
-                    <div style={styles.itemDate}>
-                      Created: {new Date(batch.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Batch Completion Reports */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>Batch Completion Reports</h2>
-            <div style={styles.reportControls}>
-              <select value={reportSortBy} onChange={(e) => setReportSortBy(e.target.value as any)} style={styles.select}>
-                <option value="date">Sort by Date</option>
-                <option value="workflow">Sort by Workflow</option>
-                <option value="user">Sort by User</option>
-              </select>
-              <button onClick={() => setShowArchivedReports(!showArchivedReports)} style={styles.toggleButton}>
-                {showArchivedReports ? 'Hide Archived' : 'Show Archived'}
-              </button>
-              <button onClick={exportReportsCSV} style={styles.exportButton}>📥 Export</button>
-            </div>
-          </div>
-
-          {sortedReports.length === 0 ? (
-            <p style={styles.emptyText}>No batch reports yet. Complete a batch in the mobile app!</p>
-          ) : (
-            <div style={styles.list}>
-              {sortedReports.map((report) => (
-                <div key={report.id} style={{...styles.reportItem, opacity: report.archived ? 0.6 : 1}}>
-                  <div style={styles.reportMain} onClick={() => { setSelectedReport(report); setReportDetailOpen(true); }}>
-                    <div style={styles.itemName}>
-                      ✅ {report.batch_name} - {report.workflow_name}
-                    </div>
-                    <div style={styles.itemMeta}>
-                      {report.completed_by} • {report.batch_size_multiplier}x
-                      {report.actual_duration && ` • ${Math.round(report.actual_duration / 60)} min`}
-                      {report.total_cost && ` • $${report.total_cost.toFixed(2)}`}
-                    </div>
-                    {report.notes && (
-                      <div style={styles.reportNotes}>{report.notes}</div>
-                    )}
-                    <div style={styles.itemDate}>
-                      {report.date} at {report.time}
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => report.archived ? unarchiveReport(report.id, 'batch_completion_reports') : archiveReport(report.id, 'batch_completion_reports')} 
-                    style={styles.archiveButton}
-                  >
-                    {report.archived ? 'Unarchive' : 'Archive'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Environmental Reports */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>Environmental Reports</h2>
-            <span style={styles.countBadge}>{visibleEnvReports.length} total</span>
-          </div>
-
-          {visibleEnvReports.length === 0 ? (
-            <p style={styles.emptyText}>No environmental reports yet.</p>
-          ) : (
-            <div style={styles.list}>
-              {visibleEnvReports.slice(0, 10).map((report) => (
-                <div key={report.id} style={{...styles.reportItem, opacity: report.archived ? 0.6 : 1}}>
-                  <div style={styles.reportMain}>
-                    <div style={styles.itemName}>
-                      🌡️ Environmental Report
-                    </div>
-                    <div style={styles.itemMeta}>
-                      Station: {report.created_by}
-                      {report.ambient_temp && ` • ${report.ambient_temp}°C`}
-                      {report.humidity && ` • ${report.humidity}% humidity`}
-                    </div>
-                    {report.notes && (
-                      <div style={styles.reportNotes}>{report.notes}</div>
-                    )}
-                    <div style={styles.itemDate}>
-                      {report.date} at {report.time}
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => report.archived ? unarchiveReport(report.id, 'environmental_reports') : archiveReport(report.id, 'environmental_reports')} 
-                    style={styles.archiveButton}
-                  >
-                    {report.archived ? 'Unarchive' : 'Archive'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Photos */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <h2 style={styles.cardTitle}>Recent Photos</h2>
-            <span style={styles.countBadge}>{photos.length} shown</span>
-          </div>
-
-          {photos.length === 0 ? (
-            <p style={styles.emptyText}>No photos yet.</p>
-          ) : (
-            <div style={styles.photoGrid}>
-              {photos.map((photo) => (
-                <div key={photo.id} style={styles.photoCard}>
-                  <img 
-                    src={photo.url} 
-                    alt="Batch photo" 
-                    style={styles.photoImage}
-                  />
-                  <div style={styles.photoDate}>
-                    {new Date(photo.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Report Detail Modal */}
-      {reportDetailOpen && selectedReport && (
-        <div style={styles.modalOverlay} onClick={() => setReportDetailOpen(false)}>
-          <div style={styles.largeModal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>{selectedReport.batch_name}</h3>
-            <div style={styles.detailGrid}>
-              <div><strong>Workflow:</strong> {selectedReport.workflow_name}</div>
-              <div><strong>Completed by:</strong> {selectedReport.completed_by}</div>
-              <div><strong>Date:</strong> {selectedReport.date} at {selectedReport.time}</div>
-              <div><strong>Batch size:</strong> {selectedReport.batch_size_multiplier}x</div>
-              {selectedReport.actual_duration && <div><strong>Duration:</strong> {Math.round(selectedReport.actual_duration / 60)} min</div>}
-              {selectedReport.total_cost && <div><strong>Cost:</strong> ${selectedReport.total_cost.toFixed(2)}</div>}
-              {selectedReport.yield_amount && <div><strong>Yield:</strong> {selectedReport.yield_amount} {selectedReport.yield_unit}</div>}
-            </div>
-            {selectedReport.notes && (
-              <div style={styles.detailSection}>
-                <strong>Notes:</strong>
-                <p>{selectedReport.notes}</p>
-              </div>
-            )}
-            {selectedReport.ingredients_used && selectedReport.ingredients_used.length > 0 && (
-              <div style={styles.detailSection}>
-                <strong>Ingredients:</strong>
-                <ul>
-                  {selectedReport.ingredients_used.map((ing: any, i: number) => (
-                    <li key={i}>{ing.name}: {ing.amount} {ing.unit} {ing.cost && `($${ing.cost})`}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <button onClick={() => setReportDetailOpen(false)} style={styles.cancelButton}>Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* Workflow Detail Modal */}
-      {workflowDetailOpen && selectedWorkflow && (
-        <div style={styles.modalOverlay} onClick={() => setWorkflowDetailOpen(false)}>
-          <div style={styles.largeModal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>📋 {selectedWorkflow.name}</h3>
-            
-            <div style={styles.detailGrid}>
-              <div><strong>Steps:</strong> {selectedWorkflow.steps?.length || 0}</div>
-              <div><strong>Created:</strong> {new Date(selectedWorkflow.created_at).toLocaleDateString()}</div>
-              <div><strong>Last Updated:</strong> {new Date(selectedWorkflow.updated_at).toLocaleDateString()}</div>
-              <div>
-                <strong>Status:</strong> {selectedWorkflow.claimed_by ? 
-                  <span style={{color: '#10b981'}}> ✓ Assigned</span> : 
-                  <span style={{color: '#ef4444'}}> ⚠ Unassigned</span>
-                }
-              </div>
-            </div>
-
-            {selectedWorkflow.claimed_by && (
-              <div style={styles.detailSection}>
-                <strong>Currently Assigned To:</strong>
-                <div style={styles.assignedUserCard}>
-                  <div>
-                    <div style={styles.assignedUserName}>{selectedWorkflow.claimed_by_name}</div>
-                    <div style={styles.assignedUserMeta}>Assigned on {new Date(selectedWorkflow.updated_at).toLocaleDateString()}</div>
-                  </div>
-                  <button 
-                    onClick={async () => {
-                      await supabase.from('workflows').update({
-                        claimed_by: null,
-                        claimed_by_name: null,
-                        updated_at: new Date().toISOString()
-                      }).eq('id', selectedWorkflow.id);
-                      await fetchWorkflows(user.id);
-                      setWorkflowDetailOpen(false);
-                    }}
-                    style={styles.unassignButton}
-                  >
-                    Unassign
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {selectedWorkflow.steps && selectedWorkflow.steps.length > 0 && (
-              <div style={styles.detailSection}>
-                <strong>Workflow Steps:</strong>
-                <div style={styles.stepsList}>
-                  {selectedWorkflow.steps.map((step: any, index: number) => (
-                    <div key={index} style={styles.stepItem}>
-                      <div style={styles.stepNumber}>{index + 1}</div>
-                      <div style={styles.stepContent}>
-                        <div style={styles.stepName}>{step.name || step.title || `Step ${index + 1}`}</div>
-                        {step.description && <div style={styles.stepDescription}>{step.description}</div>}
-                        {step.duration && <div style={styles.stepDuration}>⏱ {step.duration} min</div>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {isPremium && networkMembers.length > 0 && (
-              <div style={styles.detailSection}>
-                <strong>Assign to Team Member:</strong>
-                <div style={styles.assignmentList}>
-                  {networkMembers.map((member) => (
-                    <button
-                      key={member.id}
-                      onClick={async () => {
-                        await supabase.from('workflows').update({
-                          claimed_by: member.user_id,
-                          claimed_by_name: member.profiles?.device_name || member.profiles?.email,
-                          updated_at: new Date().toISOString()
-                        }).eq('id', selectedWorkflow.id);
-                        await fetchWorkflows(user.id);
-                        setWorkflowDetailOpen(false);
-                        alert(`Workflow assigned to ${member.profiles?.device_name || member.profiles?.email}`);
-                      }}
-                      style={styles.assignMemberButton}
-                      disabled={selectedWorkflow.claimed_by === member.user_id}
-                    >
-                      <div>
-                        <div style={styles.memberButtonName}>
-                          {member.profiles?.device_name || member.profiles?.email}
-                          {selectedWorkflow.claimed_by === member.user_id && ' ✓'}
-                        </div>
-                        <div style={styles.memberButtonEmail}>{member.profiles?.email}</div>
-                      </div>
-                      {selectedWorkflow.claimed_by === member.user_id && (
-                        <span style={styles.currentBadge}>Current</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button onClick={() => setWorkflowDetailOpen(false)} style={styles.closeButton}>Close</button>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Workflow Modal */}
-      {assignModalOpen && selectedWorkflow && (
-        <div style={styles.modalOverlay} onClick={() => setAssignModalOpen(false)}>
+      {/* Add Inventory Item Modal */}
+      {addInventoryModalOpen && (
+        <div style={styles.modalOverlay} onClick={() => setAddInventoryModalOpen(false)}>
           <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>
-              Assign Workflow: {selectedWorkflow.name}
-            </h3>
-
-            <div style={styles.modalList}>
-              {networkMembers.map((member) => (
-                <button
-                  key={member.id}
-                  onClick={() => handleAssignWorkflow(member.user_id)}
-                  style={styles.memberSelectButton}
-                >
-                  <div>
-                    <div style={styles.memberSelectName}>
-                      {member.profiles?.device_name || member.profiles?.email}
-                    </div>
-                    <div style={styles.memberSelectEmail}>
-                      {member.profiles?.email}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={() => setAssignModalOpen(false)}
-              style={styles.cancelButton}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Invite User Modal */}
-      {inviteModalOpen && (
-        <div style={styles.modalOverlay} onClick={() => setInviteModalOpen(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Invite User to Network</h3>
+            <h3 style={styles.modalTitle}>Add Inventory Item</h3>
             
             <input
-              type="email"
-              placeholder="user@example.com"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
+              type="text"
+              placeholder="Item name *"
+              value={inventoryFormData.name}
+              onChange={(e) => setInventoryFormData({...inventoryFormData, name: e.target.value})}
               style={styles.input}
             />
 
+            <div style={styles.inputRow}>
+              <input
+                type="number"
+                placeholder="Quantity *"
+                value={inventoryFormData.quantity || ''}
+                onChange={(e) => setInventoryFormData({...inventoryFormData, quantity: parseFloat(e.target.value) || 0})}
+                style={{...styles.input, flex: 2}}
+              />
+              <input
+                type="text"
+                placeholder="Unit *"
+                value={inventoryFormData.unit}
+                onChange={(e) => setInventoryFormData({...inventoryFormData, unit: e.target.value})}
+                style={{...styles.input, flex: 1}}
+              />
+            </div>
+
+            <div style={styles.inputRow}>
+              <input
+                type="number"
+                placeholder="Low stock threshold"
+                value={inventoryFormData.low_stock_threshold || ''}
+                onChange={(e) => setInventoryFormData({...inventoryFormData, low_stock_threshold: parseFloat(e.target.value) || 0})}
+                style={styles.input}
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Cost per unit"
+                value={inventoryFormData.cost_per_unit || ''}
+                onChange={(e) => setInventoryFormData({...inventoryFormData, cost_per_unit: parseFloat(e.target.value) || 0})}
+                style={styles.input}
+              />
+            </div>
+
+            <input
+              type="text"
+              placeholder="Supplier"
+              value={inventoryFormData.supplier}
+              onChange={(e) => setInventoryFormData({...inventoryFormData, supplier: e.target.value})}
+              style={styles.input}
+            />
+
+            <input
+              type="text"
+              placeholder="Category"
+              value={inventoryFormData.category}
+              onChange={(e) => setInventoryFormData({...inventoryFormData, category: e.target.value})}
+              style={styles.input}
+            />
+
+            <textarea
+              placeholder="Notes"
+              value={inventoryFormData.notes}
+              onChange={(e) => setInventoryFormData({...inventoryFormData, notes: e.target.value})}
+              style={{...styles.input, minHeight: '80px'}}
+            />
+
             <div style={styles.modalButtons}>
-              <button
-                onClick={handleInviteUser}
-                style={styles.primaryButton}
-              >
-                Send Invite
+              <button onClick={handleAddInventoryItem} style={styles.primaryButton}>
+                Add Item
               </button>
-              <button
-                onClick={() => {
-                  setInviteModalOpen(false);
-                  setInviteEmail('');
+              <button onClick={() => setAddInventoryModalOpen(false)} style={styles.cancelButton}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inventory Transaction Modal */}
+      {inventoryTransactionModalOpen && (
+        <div style={styles.modalOverlay} onClick={() => setInventoryTransactionModalOpen(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Record Inventory Transaction</h3>
+            
+            <select
+              value={transactionFormData.item_id}
+              onChange={(e) => setTransactionFormData({...transactionFormData, item_id: e.target.value})}
+              style={styles.input}
+            >
+              <option value="">Select item *</option>
+              {inventoryItems.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.name} ({item.quantity} {item.unit})
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={transactionFormData.type}
+              onChange={(e) => setTransactionFormData({...transactionFormData, type: e.target.value as any})}
+              style={styles.input}
+            >
+              <option value="use">Use (subtract)</option>
+              <option value="add">Add (increase)</option>
+              <option value="adjust">Adjust (set to)</option>
+              <option value="waste">Waste (subtract)</option>
+            </select>
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Quantity *"
+              value={transactionFormData.quantity || ''}
+              onChange={(e) => setTransactionFormData({...transactionFormData, quantity: parseFloat(e.target.value) || 0})}
+              style={styles.input}
+            />
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Cost (optional)"
+              value={transactionFormData.cost || ''}
+              onChange={(e) => setTransactionFormData({...transactionFormData, cost: parseFloat(e.target.value) || 0})}
+              style={styles.input}
+            />
+
+            <textarea
+              placeholder="Notes"
+              value={transactionFormData.notes}
+              onChange={(e) => setTransactionFormData({...transactionFormData, notes: e.target.value})}
+              style={{...styles.input, minHeight: '80px'}}
+            />
+
+            <div style={styles.modalButtons}>
+              <button onClick={handleInventoryTransaction} style={styles.primaryButton}>
+                Record Transaction
+              </button>
+              <button onClick={() => setInventoryTransactionModalOpen(false)} style={styles.cancelButton}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Shopping List Item Modal */}
+      {addShoppingItemModalOpen && (
+        <div style={styles.modalOverlay} onClick={() => setAddShoppingItemModalOpen(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Add to Shopping List</h3>
+            
+            <input
+              type="text"
+              placeholder="Item name *"
+              value={shoppingFormData.item_name}
+              onChange={(e) => setShoppingFormData({...shoppingFormData, item_name: e.target.value})}
+              style={styles.input}
+            />
+
+            <div style={styles.inputRow}>
+              <input
+                type="number"
+                placeholder="Quantity *"
+                value={shoppingFormData.quantity || ''}
+                onChange={(e) => setShoppingFormData({...shoppingFormData, quantity: parseFloat(e.target.value) || 0})}
+                style={{...styles.input, flex: 2}}
+              />
+              <input
+                type="text"
+                placeholder="Unit *"
+                value={shoppingFormData.unit}
+                onChange={(e) => setShoppingFormData({...shoppingFormData, unit: e.target.value})}
+                style={{...styles.input, flex: 1}}
+              />
+            </div>
+
+            <select
+              value={shoppingFormData.priority}
+              onChange={(e) => setShoppingFormData({...shoppingFormData, priority: e.target.value as any})}
+              style={styles.input}
+            >
+              <option value="low">Low Priority</option>
+              <option value="normal">Normal Priority</option>
+              <option value="high">High Priority</option>
+              <option value="urgent">Urgent</option>
+            </select>
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Estimated cost"
+              value={shoppingFormData.estimated_cost || ''}
+              onChange={(e) => setShoppingFormData({...shoppingFormData, estimated_cost: parseFloat(e.target.value) || 0})}
+              style={styles.input}
+            />
+
+            <input
+              type="text"
+              placeholder="Supplier"
+              value={shoppingFormData.supplier}
+              onChange={(e) => setShoppingFormData({...shoppingFormData, supplier: e.target.value})}
+              style={styles.input}
+            />
+
+            <textarea
+              placeholder="Notes"
+              value={shoppingFormData.notes}
+              onChange={(e) => setShoppingFormData({...shoppingFormData, notes: e.target.value})}
+              style={{...styles.input, minHeight: '60px'}}
+            />
+
+            <div style={styles.modalButtons}>
+              <button onClick={handleAddShoppingItem} style={styles.primaryButton}>
+                Add to List
+              </button>
+              <button onClick={() => setAddShoppingItemModalOpen(false)} style={styles.cancelButton}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Schedule Batch Modal */}
+      {scheduleModalOpen && (
+        <div style={styles.modalOverlay} onClick={() => setScheduleModalOpen(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>Schedule Batch</h3>
+            
+            <input
+              type="text"
+              placeholder="Batch name *"
+              value={scheduleFormData.name}
+              onChange={(e) => setScheduleFormData({...scheduleFormData, name: e.target.value})}
+              style={styles.input}
+            />
+
+            <select
+              value={scheduleFormData.workflow_id}
+              onChange={(e) => setScheduleFormData({...scheduleFormData, workflow_id: e.target.value})}
+              style={styles.input}
+            >
+              <option value="">Select workflow *</option>
+              {workflows.map(wf => (
+                <option key={wf.id} value={wf.id}>{wf.name}</option>
+              ))}
+            </select>
+
+            {batchTemplates.length > 0 && (
+              <select
+                value={scheduleFormData.template_id}
+                onChange={(e) => {
+                  const template = batchTemplates.find(t => t.id === e.target.value);
+                  setScheduleFormData({
+                    ...scheduleFormData,
+                    template_id: e.target.value,
+                    workflow_id: template?.workflow_id || scheduleFormData.workflow_id,
+                    name: template?.name || scheduleFormData.name,
+                    batch_size_multiplier: template?.batch_size_multiplier || 1,
+                  });
                 }}
-                style={styles.cancelButton}
+                style={styles.input}
               >
+                <option value="">Or select template (optional)</option>
+                {batchTemplates.map(t => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            )}
+
+            <div style={styles.inputRow}>
+              <input
+                type="date"
+                value={scheduleFormData.scheduled_date}
+                onChange={(e) => setScheduleFormData({...scheduleFormData, scheduled_date: e.target.value})}
+                style={{...styles.input, flex: 2}}
+              />
+              <input
+                type="time"
+                value={scheduleFormData.scheduled_time}
+                onChange={(e) => setScheduleFormData({...scheduleFormData, scheduled_time: e.target.value})}
+                style={{...styles.input, flex: 1}}
+              />
+            </div>
+
+            <input
+              type="number"
+              step="0.1"
+              placeholder="Batch size multiplier"
+              value={scheduleFormData.batch_size_multiplier || ''}
+              onChange={(e) => setScheduleFormData({...scheduleFormData, batch_size_multiplier: parseFloat(e.target.value) || 1})}
+              style={styles.input}
+            />
+
+            {isPremium && networkMembers.length > 0 && (
+              <select
+                value={scheduleFormData.assigned_to}
+                onChange={(e) => setScheduleFormData({...scheduleFormData, assigned_to: e.target.value})}
+                style={styles.input}
+              >
+                <option value="">Assign to (optional)</option>
+                {networkMembers.map(member => (
+                  <option key={member.id} value={member.user_id}>
+                    {member.profiles?.device_name || member.profiles?.email}
+                  </option>
+                ))}
+              </select>
+            )}
+
+            <textarea
+              placeholder="Notes"
+              value={scheduleFormData.notes}
+              onChange={(e) => setScheduleFormData({...scheduleFormData, notes: e.target.value})}
+              style={{...styles.input, minHeight: '60px'}}
+            />
+
+            <div style={styles.modalButtons}>
+              <button onClick={handleScheduleBatch} style={styles.primaryButton}>
+                Schedule Batch
+              </button>
+              <button onClick={() => setScheduleModalOpen(false)} style={styles.cancelButton}>
                 Cancel
               </button>
             </div>
@@ -1096,19 +1557,20 @@ export default function Dashboard() {
 const styles: Record<string, React.CSSProperties> = {
   container: { minHeight: '100vh', backgroundColor: '#f9fafb' },
   header: { backgroundColor: '#ffffff', borderBottom: '1px solid #e5e7eb', padding: '1rem 0' },
-  headerContent: { maxWidth: '1200px', margin: '0 auto', padding: '0 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  headerContent: { maxWidth: '1400px', margin: '0 auto', padding: '0 1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: '1.5rem', fontWeight: '600', margin: 0, color: '#111827' },
   premiumBadge: { fontSize: '0.875rem', color: '#6b7280', marginTop: '0.25rem' },
   headerButtons: { display: 'flex', gap: '0.75rem' },
-  refreshButton: { padding: '0.5rem 1rem', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
   linkButton: { padding: '0.5rem 1rem', backgroundColor: '#f3f4f6', color: '#374151', textDecoration: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', display: 'flex', alignItems: 'center' },
   signOutButton: { padding: '0.5rem 1rem', backgroundColor: '#ef4444', color: '#ffffff', border: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
-  content: { maxWidth: '1200px', margin: '0 auto', padding: '2rem 1.5rem' },
+  tabBar: { maxWidth: '1400px', margin: '0 auto', padding: '0 1.5rem', display: 'flex', gap: '0.5rem', borderBottom: '2px solid #e5e7eb' },
+  tab: { padding: '1rem 1.5rem', backgroundColor: 'transparent', border: 'none', borderBottom: '2px solid transparent', fontSize: '0.875rem', fontWeight: '500', color: '#6b7280', cursor: 'pointer', marginBottom: '-2px' },
+  tabActive: { color: '#3b82f6', borderBottomColor: '#3b82f6' },
+  content: { maxWidth: '1400px', margin: '0 auto', padding: '2rem 1.5rem' },
   loading: { display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', fontSize: '1.125rem', color: '#6b7280' },
   card: { backgroundColor: '#ffffff', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem', boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' as const, gap: '1rem' },
   cardTitle: { fontSize: '1.25rem', fontWeight: '600', margin: 0, color: '#111827' },
-  userInfo: { fontSize: '0.875rem', color: '#6b7280', lineHeight: '1.75' },
   statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' },
   statCard: { backgroundColor: '#ffffff', borderRadius: '0.75rem', padding: '1.5rem', textAlign: 'center' as const, boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)' },
   statNumber: { fontSize: '2rem', fontWeight: '700', color: '#111827', marginBottom: '0.25rem' },
@@ -1117,73 +1579,77 @@ const styles: Record<string, React.CSSProperties> = {
   analyticItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb' },
   analyticLabel: { fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase' as const },
   analyticValue: { fontSize: '1.25rem', fontWeight: '600', color: '#111827' },
-  countBadge: { fontSize: '0.875rem', color: '#6b7280' },
+  alertCard: { backgroundColor: '#fef2f2', border: '2px solid #fca5a5', borderRadius: '0.75rem', padding: '1.5rem', marginBottom: '1.5rem' },
+  alertTitle: { fontSize: '1.125rem', fontWeight: '600', color: '#dc2626', marginBottom: '1rem' },
   list: { display: 'flex', flexDirection: 'column' as const, gap: '0.75rem' },
-  activityItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between' },
-  activityUser: { fontSize: '0.875rem', fontWeight: '500', color: '#111827' },
-  activityAction: { fontSize: '0.875rem', color: '#6b7280' },
-  activityTime: { fontSize: '0.75rem', color: '#9ca3af' },
-  memberItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  memberName: { fontSize: '1rem', fontWeight: '500', color: '#111827', marginBottom: '0.25rem' },
-  ownerBadge: { marginLeft: '0.5rem', fontSize: '0.75rem', backgroundColor: '#10b981', color: '#ffffff', padding: '0.125rem 0.5rem', borderRadius: '0.25rem' },
-  memberEmail: { fontSize: '0.875rem', color: '#6b7280' },
-  memberDate: { fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.25rem' },
-  removeButton: { padding: '0.5rem 1rem', backgroundColor: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
-  workflowItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
-  workflowItemClickable: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', transition: 'all 0.2s' },
-  workflowInfo: { flex: 1 },
+  alertItem: { padding: '1rem', backgroundColor: '#ffffff', borderRadius: '0.5rem', border: '1px solid #fca5a5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   itemName: { fontSize: '1rem', fontWeight: '500', color: '#111827', marginBottom: '0.25rem' },
-  itemMeta: { fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.25rem' },
-  assignedBadge: { fontSize: '0.75rem', color: '#10b981', marginBottom: '0.25rem' },
-  unassignedBadge: { fontSize: '0.75rem', color: '#ef4444', marginBottom: '0.25rem' },
-  clickHint: { fontSize: '0.875rem', color: '#6b7280' },
-  assignedUserCard: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', backgroundColor: '#f0fdf4', border: '1px solid #86efac', borderRadius: '0.5rem', marginTop: '0.5rem' },
-  assignedUserName: { fontSize: '1rem', fontWeight: '500', color: '#111827' },
-  assignedUserMeta: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' },
-  unassignButton: { padding: '0.5rem 1rem', backgroundColor: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
-  stepsList: { marginTop: '0.5rem' },
-  stepItem: { display: 'flex', gap: '1rem', padding: '0.75rem', backgroundColor: '#ffffff', border: '1px solid #e5e7eb', borderRadius: '0.5rem', marginBottom: '0.5rem' },
-  stepNumber: { width: '2rem', height: '2rem', backgroundColor: '#3b82f6', color: '#ffffff', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '600', flexShrink: 0 },
-  stepContent: { flex: 1 },
-  stepName: { fontSize: '0.875rem', fontWeight: '500', color: '#111827' },
-  stepDescription: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' },
-  stepDuration: { fontSize: '0.75rem', color: '#3b82f6', marginTop: '0.25rem' },
-  assignmentList: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem', marginTop: '0.5rem' },
-  assignMemberButton: { width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '0.5rem', cursor: 'pointer', transition: 'all 0.2s' },
-  memberButtonName: { fontSize: '1rem', fontWeight: '500', color: '#111827' },
-  memberButtonEmail: { fontSize: '0.75rem', color: '#6b7280', marginTop: '0.25rem' },
-  currentBadge: { padding: '0.25rem 0.75rem', backgroundColor: '#10b981', color: '#ffffff', borderRadius: '0.375rem', fontSize: '0.75rem' },
-  closeButton: { width: '100%', padding: '0.75rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer', marginTop: '1rem' },
-  itemDate: { fontSize: '0.75rem', color: '#9ca3af' },
-  assignButton: { padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
-  batchItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb' },
-  progressBarContainer: { width: '100%', backgroundColor: '#e5e7eb', borderRadius: '9999px', height: '0.5rem', marginTop: '0.5rem', overflow: 'hidden' },
-  progressBar: { backgroundColor: '#3b82f6', height: '100%', borderRadius: '9999px', transition: 'width 0.3s ease' },
-  reportControls: { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' as const },
-  select: { padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '0.375rem', fontSize: '0.875rem' },
-  toggleButton: { padding: '0.5rem 1rem', backgroundColor: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
-  exportButton: { padding: '0.5rem 1rem', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
-  reportItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  reportMain: { flex: 1, cursor: 'pointer' },
-  archiveButton: { padding: '0.5rem 1rem', backgroundColor: '#fef3c7', color: '#92400e', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
-  reportNotes: { fontSize: '0.875rem', color: '#6b7280', marginTop: '0.5rem', fontStyle: 'italic' as const },
-  photoGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '1rem' },
-  photoCard: { border: '1px solid #e5e7eb', borderRadius: '0.5rem', overflow: 'hidden' },
-  photoImage: { width: '100%', height: '150px', objectFit: 'cover' as const },
-  photoDate: { fontSize: '0.75rem', color: '#9ca3af', padding: '0.5rem' },
-  emptyText: { color: '#9ca3af', fontSize: '0.875rem', fontStyle: 'italic' as const },
+  itemMeta: { fontSize: '0.875rem', color: '#6b7280' },
+  addToListButton: { padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer', whiteSpace: 'nowrap' as const },
+  inventoryStats: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' },
+  inventoryStat: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', textAlign: 'center' as const },
+  inventoryStatLabel: { fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem', textTransform: 'uppercase' as const },
+  inventoryStatValue: { fontSize: '1.5rem', fontWeight: '700', color: '#111827' },
+  inventoryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '1rem' },
+  inventoryCard: { padding: '1.5rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '2px solid #e5e7eb' },
+  inventoryCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
+  inventoryItemName: { fontSize: '1rem', fontWeight: '600', color: '#111827' },
+  categoryBadge: { fontSize: '0.75rem', backgroundColor: '#e5e7eb', color: '#374151', padding: '0.25rem 0.5rem', borderRadius: '0.25rem' },
+  inventoryQuantity: { marginBottom: '0.5rem' },
+  inventoryMeta: { fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.25rem' },
+  inventoryNotes: { fontSize: '0.75rem', color: '#6b7280', fontStyle: 'italic' as const, marginTop: '0.5rem', marginBottom: '0.5rem' },
+  inventoryActions: { display: 'flex', gap: '0.5rem', marginTop: '1rem' },
+  inventoryActionButton: { flex: 1, padding: '0.5rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
+  shoppingColumns: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' },
+  shoppingColumn: { backgroundColor: '#f9fafb', padding: '1rem', borderRadius: '0.5rem' },
+  shoppingColumnTitle: { fontSize: '0.875rem', fontWeight: '600', color: '#111827', marginBottom: '1rem' },
+  shoppingCard: { backgroundColor: '#ffffff', padding: '1rem', borderRadius: '0.5rem', border: '1px solid #e5e7eb', borderLeft: '4px solid', marginBottom: '0.75rem' },
+  shoppingItemName: { fontSize: '0.875rem', fontWeight: '500', color: '#111827', marginBottom: '0.25rem' },
+  shoppingItemMeta: { fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.5rem' },
+  shoppingSupplier: { fontSize: '0.75rem', color: '#3b82f6', marginBottom: '0.5rem' },
+  shoppingActions: { marginTop: '0.5rem' },
+  shoppingActionButton: { width: '100%', padding: '0.25rem 0.75rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.75rem', cursor: 'pointer' },
+  transactionsList: { display: 'flex', flexDirection: 'column' as const, gap: '0.75rem' },
+  transactionItem: { display: 'flex', gap: '1rem', padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb' },
+  transactionIcon: { fontSize: '1.5rem', width: '2.5rem', height: '2.5rem', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffffff', borderRadius: '50%' },
+  transactionContent: { flex: 1 },
+  transactionName: { fontSize: '0.875rem', fontWeight: '500', color: '#111827', marginBottom: '0.25rem' },
+  transactionMeta: { fontSize: '0.75rem', color: '#6b7280' },
+  transactionNotes: { fontSize: '0.75rem', color: '#6b7280', fontStyle: 'italic' as const, marginTop: '0.25rem' },
+  transactionCost: { fontSize: '1rem', fontWeight: '600', color: '#111827' },
+  calendarControls: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' },
+  calendarNavButton: { padding: '0.5rem 1rem', backgroundColor: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
+  calendarMonth: { fontSize: '1.125rem', fontWeight: '600', color: '#111827', margin: 0 },
+  calendarGrid: { display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '0.5rem' },
+  calendarDayHeader: { padding: '0.5rem', textAlign: 'center' as const, fontWeight: '600', fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase' as const },
+  calendarDayEmpty: { aspectRatio: '1', backgroundColor: '#f9fafb' },
+  calendarDay: { aspectRatio: '1', border: '1px solid #e5e7eb', borderRadius: '0.375rem', padding: '0.5rem', position: 'relative' as const, overflow: 'hidden' },
+  calendarDayNumber: { fontSize: '0.875rem', fontWeight: '500', color: '#111827', marginBottom: '0.25rem' },
+  calendarBadge: { position: 'absolute' as const, top: '0.25rem', right: '0.25rem', backgroundColor: '#3b82f6', color: '#ffffff', borderRadius: '50%', width: '1.25rem', height: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.625rem', fontWeight: '600' },
+  calendarBatches: { display: 'flex', flexDirection: 'column' as const, gap: '0.25rem' },
+  calendarBatchItem: { fontSize: '0.625rem', padding: '0.125rem 0.25rem', borderRadius: '0.25rem', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' },
+  calendarMoreBadge: { fontSize: '0.625rem', color: '#6b7280', fontStyle: 'italic' as const },
+  scheduledBatchItem: { padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  scheduledBatchMain: { flex: 1 },
+  batchNotes: { fontSize: '0.75rem', color: '#6b7280', fontStyle: 'italic' as const, marginTop: '0.25rem' },
+  startButton: { padding: '0.5rem 1rem', backgroundColor: '#10b981', color: '#ffffff', border: 'none', borderRadius: '0.375rem', fontSize: '0.875rem', cursor: 'pointer' },
+  sectionTitle: { fontSize: '1rem', fontWeight: '600', color: '#111827', marginTop: '1.5rem', marginBottom: '1rem' },
+  analyticsTable: { border: '1px solid #e5e7eb', borderRadius: '0.5rem', overflow: 'hidden' },
+  tableHeader: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', backgroundColor: '#f9fafb', padding: '0.75rem 1rem', fontWeight: '600', fontSize: '0.875rem', color: '#374151', borderBottom: '1px solid #e5e7eb' },
+  tableRow: { display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', padding: '0.75rem 1rem', fontSize: '0.875rem', borderBottom: '1px solid #e5e7eb' },
+  tableCell: { padding: '0.25rem 0.5rem' },
+  categoryBreakdown: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem' },
+  categoryItem: { padding: '0.75rem 1rem', backgroundColor: '#f9fafb', borderRadius: '0.375rem', border: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  categoryName: { fontSize: '0.875rem', fontWeight: '500', color: '#111827' },
+  categoryStats: { display: 'flex', gap: '1rem', fontSize: '0.75rem', color: '#6b7280' },
   primaryButton: { padding: '0.5rem 1rem', backgroundColor: '#3b82f6', color: '#ffffff', border: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
-  modalOverlay: { position: 'fixed' as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
-  modal: { backgroundColor: '#ffffff', borderRadius: '0.75rem', padding: '2rem', maxWidth: '500px', width: '90%', maxHeight: '80vh', overflowY: 'auto' as const },
-  largeModal: { backgroundColor: '#ffffff', borderRadius: '0.75rem', padding: '2rem', maxWidth: '700px', width: '90%', maxHeight: '80vh', overflowY: 'auto' as const },
+  secondaryButton: { padding: '0.5rem 1rem', backgroundColor: '#f3f4f6', color: '#374151', border: '1px solid #d1d5db', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
+  modalOverlay: { position: 'fixed' as const, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000, padding: '1rem' },
+  modal: { backgroundColor: '#ffffff', borderRadius: '0.75rem', padding: '2rem', maxWidth: '500px', width: '100%', maxHeight: '90vh', overflowY: 'auto' as const },
   modalTitle: { fontSize: '1.25rem', fontWeight: '600', marginBottom: '1.5rem', color: '#111827' },
-  modalList: { display: 'flex', flexDirection: 'column' as const, gap: '0.5rem', marginBottom: '1.5rem' },
-  memberSelectButton: { width: '100%', textAlign: 'left' as const, padding: '1rem', backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '0.5rem', cursor: 'pointer' },
-  memberSelectName: { fontSize: '1rem', fontWeight: '500', color: '#111827' },
-  memberSelectEmail: { fontSize: '0.875rem', color: '#6b7280', marginTop: '0.25rem' },
-  input: { width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '0.5rem', fontSize: '1rem', marginBottom: '1.5rem' },
-  modalButtons: { display: 'flex', gap: '0.5rem' },
+  input: { width: '100%', padding: '0.75rem', border: '1px solid #d1d5db', borderRadius: '0.5rem', fontSize: '1rem', marginBottom: '1rem' },
+  inputRow: { display: 'flex', gap: '0.5rem' },
+  modalButtons: { display: 'flex', gap: '0.5rem', marginTop: '1rem' },
   cancelButton: { flex: 1, padding: '0.75rem', backgroundColor: '#f3f4f6', color: '#374151', border: 'none', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: '500', cursor: 'pointer' },
-  detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem', marginBottom: '1rem', fontSize: '0.875rem' },
-  detailSection: { marginTop: '1rem', padding: '1rem', backgroundColor: '#f9fafb', borderRadius: '0.5rem' },
+  emptyText: { color: '#9ca3af', fontSize: '0.875rem', fontStyle: 'italic' as const, textAlign: 'center' as const, padding: '2rem' },
 };
