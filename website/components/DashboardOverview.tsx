@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import type { DashboardProps } from './types';
-import { supabase } from '../../lib/supabase';
+import type { DashboardProps } from '../lib/dashboard-types';
+import { supabase } from '../lib/supabase';
 
 export default function Overview({
   workflows,

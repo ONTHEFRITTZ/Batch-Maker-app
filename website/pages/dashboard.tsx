@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
-import Overview from './dashboard/overview';
-import Workflows from './dashboard/workflows';
-import Inventory from './dashboard/inventory';
-import Calendar from './dashboard/calendar';
-import Analytics from './dashboard/analytics';
+import Overview from '../components/DashboardOverview';
+import Workflows from '../components/DashboardWorkflows';
+import Inventory from '../components/DashboardInventory';
+import Calendar from '../components/DashboardCalendar';
+import Analytics from '../components/DashboardAnalytics';
 import type { 
   Profile, 
   Workflow, 
@@ -19,7 +19,7 @@ import type {
   InventoryTransaction,
   ShoppingListItem,
   ScheduledBatch
-} from './dashboard/types';
+} from '../lib/dashboard-types';
 
 export default function EnhancedDashboard() {
   const [user, setUser] = useState<any>(null);
@@ -269,7 +269,7 @@ export default function EnhancedDashboard() {
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Enhanced Dashboard</h1>
-            {isPremium && <p className="text-sm text-gray-500 mt-1">👑 Premium Account</p>}
+            {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
           </div>
           <div className="flex gap-3">
             <Link href="/account" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">

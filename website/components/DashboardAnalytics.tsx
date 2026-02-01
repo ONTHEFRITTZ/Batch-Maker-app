@@ -1,4 +1,4 @@
-import type { DashboardProps } from './types';
+import type { DashboardProps } from '../lib/dashboard-types';
 
 export default function Analytics({
   batchReports,
