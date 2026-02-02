@@ -189,9 +189,9 @@ export default function HomeScreen() {
       {/* Logo and Title */}
       <View style={styles.header}>
         <Image 
-          source={require('../assets/images/batch-maker-alpha.png')}
+          source={require('../assets/images/splash-alpha.png')}
           style={styles.logo}
-          resizeMode="contain"
+          resizeMode="cover"
         />
         
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
