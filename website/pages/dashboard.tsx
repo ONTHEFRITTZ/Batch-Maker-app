@@ -45,6 +45,8 @@ export default function EnhancedDashboard() {
   useEffect(() => {
     if (!user) return;
 
+    supabase.rpc('cleanup_stalled_batches');
+
     // Real-time subscriptions
     const inventoryChannel = supabase
       .channel('inventory-changes')
