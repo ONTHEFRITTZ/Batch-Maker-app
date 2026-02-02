@@ -223,6 +223,13 @@ export default function HomeScreen() {
           </TouchableOpacity>
           
           <TouchableOpacity
+            onPress={() => router.push('/screens/ClockInScreen')}
+            style={styles.menuButton}
+          >
+            <Text style={styles.menuButtonText}>Clock In/Out</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
             onPress={() => router.push('/screens/ReportsScreen')}
             style={styles.menuButton}
           >

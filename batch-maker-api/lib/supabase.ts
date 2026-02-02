@@ -66,22 +66,46 @@ export async function getUserFromRequest(req: any) {
   const authHeader = req.headers?.authorization || req.headers?.Authorization;
   
   if (!authHeader?.startsWith('Bearer ')) {
-    return null;
+    throw new Error('No authorization token provided');
   }
 
   const token = authHeader.substring(7);
   
   const { data: { user }, error } = await supabase.auth.getUser(token);
   
-  if (error || !user) {
-    return null;
+  if (error) {
+    console.error('Auth error:', error);
+    throw new Error('Invalid or expired token');
+  }
+  
+  if (!user) {
+    throw new Error('User not found');
   }
 
   return user;
 }
 
 // Helper: Check subscription status
-export async function checkSubscription(userId: string) {
+export async function checkSubscription(userId: string): Promise<boolean> {
+  const { data: profile, error } = await supabaseAdmin
+    .from('profiles')
+    .select('subscription_status, role')
+    .eq('id', userId)
+    .single();
+
+  if (error) {
+    console.error('Subscription check error:', error);
+    return false;
+  }
+
+  // Allow access for active subscriptions, premium users, and admins
+  return profile?.subscription_status === 'active' || 
+         profile?.role === 'premium' || 
+         profile?.role === 'admin';
+}
+
+// Helper: Get full subscription details
+export async function getSubscriptionDetails(userId: string) {
   const { data: profile } = await supabaseAdmin
     .from('profiles')
     .select('subscription_status, role')
@@ -89,7 +113,10 @@ export async function checkSubscription(userId: string) {
     .single();
 
   return {
-    isActive: profile?.subscription_status === 'active' || profile?.role === 'premium' || profile?.role === 'admin',
+    isActive: profile?.subscription_status === 'active' || 
+              profile?.role === 'premium' || 
+              profile?.role === 'admin',
     role: profile?.role || 'free',
+    status: profile?.subscription_status || 'inactive'
   };
 }

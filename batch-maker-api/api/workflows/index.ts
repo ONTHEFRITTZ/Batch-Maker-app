@@ -1,4 +1,3 @@
-// pages/api/workflows/index.ts
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { supabase, getUserFromRequest, checkSubscription } from '../../lib/supabase';
 
@@ -7,11 +6,12 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    // Get user from authorization header
+    // Get user from authorization header - will throw if invalid
     const user = await getUserFromRequest(req);
 
-    // Check subscription
+    // Check subscription - now returns boolean
     const hasAccess = await checkSubscription(user.id);
+    
     if (!hasAccess) {
       return res.status(403).json({ error: 'Subscription required' });
     }
@@ -26,6 +26,7 @@ export default async function handler(
         .order('created_at', { ascending: false });
 
       if (error) {
+        console.error('Workflow fetch error:', error);
         return res.status(500).json({ error: error.message });
       }
 
@@ -54,6 +55,7 @@ export default async function handler(
         .single();
 
       if (error) {
+        console.error('Workflow creation error:', error);
         return res.status(500).json({ error: error.message });
       }
 
@@ -61,6 +63,7 @@ export default async function handler(
     }
 
     return res.status(405).json({ error: 'Method not allowed' });
+    
   } catch (error: any) {
     console.error('Workflows API error:', error);
     return res.status(401).json({ error: error.message });

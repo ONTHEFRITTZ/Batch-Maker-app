@@ -7,6 +7,7 @@ import Overview from '../components/DashboardOverview';
 import Workflows from '../components/DashboardWorkflows';
 import Inventory from '../components/DashboardInventory';
 import Calendar from '../components/DashboardCalendar';
+import Schedule from '../components/DashboardSchedule';
 import Analytics from '../components/DashboardAnalytics';
 import type { 
   Profile, 
@@ -34,7 +35,8 @@ export default function EnhancedDashboard() {
   const [shoppingList, setShoppingList] = useState<ShoppingListItem[]>([]);
   const [scheduledBatches, setScheduledBatches] = useState<ScheduledBatch[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeView, setActiveView] = useState<'overview' | 'workflows' | 'inventory' | 'calendar' | 'analytics'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'workflows' | 'inventory' | 'calendar' | 'schedule' | 'analytics'>('overview');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     checkUser();
@@ -234,7 +236,7 @@ export default function EnhancedDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg text-gray-500">Loading Enhanced Dashboard...</div>
+        <div className="text-lg text-gray-500">Loading Dashboard...</div>
       </div>
     );
   }
@@ -264,20 +266,48 @@ export default function EnhancedDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      
       {/* Header */}
       <header className="bg-white border-b border-gray-200 py-4">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Enhanced Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
             {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
           </div>
-          <div className="flex gap-3">
-            <Link href="/account" className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
-              Account
-            </Link>
-            <button onClick={signOut} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 transition-colors">
-              Sign Out
+          <div className="relative">
+            <button 
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
             </button>
+            
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                <Link 
+                  href="/account" 
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Account
+                </Link>
+                <Link 
+                  href="/settings" 
+                  className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Settings
+                </Link>
+                <button 
+                  onClick={() => { signOut(); setMenuOpen(false); }}
+                  className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100"
+                >
+                  Sign Out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -325,6 +355,18 @@ export default function EnhancedDashboard() {
           >
             Calendar
           </button>
+          {isPremium && (
+            <button 
+              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+                activeView === 'schedule' 
+                  ? 'text-blue-600 border-blue-600' 
+                  : 'text-gray-500 border-transparent hover:text-gray-700'
+              }`}
+              onClick={() => setActiveView('schedule')}
+            >
+              Schedule
+            </button>
+          )}
           <button 
             className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
               activeView === 'analytics' 
@@ -343,6 +385,7 @@ export default function EnhancedDashboard() {
         {activeView === 'workflows' && <Workflows {...sharedProps} />}
         {activeView === 'inventory' && <Inventory {...sharedProps} />}
         {activeView === 'calendar' && <Calendar {...sharedProps} />}
+        {activeView === 'schedule' && <Schedule {...sharedProps} />}
         {activeView === 'analytics' && <Analytics {...sharedProps} />}
       </div>
     </div>
