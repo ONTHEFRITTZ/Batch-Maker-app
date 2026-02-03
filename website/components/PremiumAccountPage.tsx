@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import Link from 'next/link';
-import DocumentManager from '../components/DocumentManager';
+import DocumentManager from './DocumentManager';
 
 interface BusinessSettings {
   business_name: string;

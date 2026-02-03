@@ -11,7 +11,8 @@ export default async function handler(
 
   try {
     const user = await getUserFromRequest(req);
-    const supabase = createAuthenticatedClient(req);
+    const authToken = req.headers.authorization?.replace('Bearer ', '') || '';
+    const supabase = createAuthenticatedClient(authToken);
     
     const hasAccess = await checkSubscription(user.id);
     if (!hasAccess) {

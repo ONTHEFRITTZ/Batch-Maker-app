@@ -45,8 +45,6 @@ export default function EnhancedDashboard() {
   useEffect(() => {
     if (!user) return;
 
-    supabase.rpc('cleanup_stalled_batches');
-
     // Real-time subscriptions
     const inventoryChannel = supabase
       .channel('inventory-changes')
@@ -102,8 +100,28 @@ export default function EnhancedDashboard() {
 
   async function fetchData(userId: string) {
     try {
+      await fetchProfile(userId);
+      
+      // Check if user is premium after profile is loaded
+      const profileData = await new Promise<any>((resolve) => {
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
+          .then(({ data }) => resolve(data));
+      });
+
+      const premium = profileData?.role === 'premium' || profileData?.role === 'admin';
+      
+      if (!premium) {
+        // Redirect free users to account page
+        window.location.href = '/account';
+        return;
+      }
+
+      // Only fetch dashboard data for premium users
       await Promise.all([
-        fetchProfile(userId),
         fetchWorkflows(userId),
         fetchBatches(userId),
         fetchBatchReports(userId),
@@ -238,7 +256,7 @@ export default function EnhancedDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg text-gray-500">Loading Dashboard...</div>
+        <div className="text-lg text-gray-500">Loading Enhanced Dashboard...</div>
       </div>
     );
   }
@@ -268,12 +286,11 @@ export default function EnhancedDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      
       {/* Header */}
       <header className="bg-white border-b border-gray-200 py-4">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
+            <h1 className="text-2xl font-semibold text-gray-900">Enhanced Dashboard</h1>
             {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
           </div>
           <div className="relative">

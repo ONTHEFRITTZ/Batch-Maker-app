@@ -1,77 +1,36 @@
 # Batch Maker - Master TODO List
 *Last Updated: January 26, 2026*
 
----
+-On the app the long press menu sits behind the active batches lower on the list
 
-## 🚀 CURRENT SPRINT - Web Platform & OAuth
-
-### ✅ COMPLETED THIS SESSION
-- [x] YouTube video integration in StepScreen
-- [x] Photo capture during batch execution
-- [x] Haptic feedback throughout app
-- [x] Fixed spreadsheet import (groups ingredients by step)
-- [x] React admin dashboard with real-time monitoring
-- [ ] Backend API structure (Node.js + MongoDB + Stripe)
-- [x] User role system (Free, Admin, Premium)
-- [x] Permission service (reports/edit visibility logic)
-- [x] Complete landing page (App Store ready)
-- [x] Legal pages (Privacy, Terms, EULA, Refund)
-- [x] OAuth integration (Google + Apple Sign In)
-
----
-
-## 🎯 IMMEDIATE PRIORITIES (Next 2 Weeks)
-
-### 1. Backend Deployment & Configuration
-**Status:** Ready to deploy
-**Estimated Time:** 4-6 hours
-
-- [ ] Set up supabase (free tier)
+-The Overview Page is horrendously dull and needs to be made more useful. I dont know how at the moment.
 
 
-- [ ] Configure RevenueCat
+-The app and website need a cosmetic overhaul including subtle quality of life improvements.
+
+-put a settings button beside the account button. In here we want the night/day modes, a section to toggle each element on each tab of the dashboard visibility on or off (customize the portal to allow ease of use. Maybe they dont use a lot of the features. I want everything toggled on by default.
+
+-ability to print barcodes from the web portal that correspond to active batches. Someone can scan that barcode with the app to see the details of that workflow (assigned or not, what step it is on, remaining time on the timer etc.) and either determine if it is the batch they are looking for or claim it and continue working on it.
+
+-find a way to integrate into any major POS system to get sales data. This will help track costing, revenue and other analytics data that may be helpful. We need the ability to export these different types of data in whatever format is most appropriate (xsls or csv etc)
+
+-either switch to RevenueCat again or stick with stripe ($25/month for unlimited users. Maybe $5 per month for a solo user with dashboard access (no sync)?
+
+-new user interactive tutorial/walkthrough.
+
+-Allow users to download language packs that translate the app into the desired language. (allows a boss or premium account holder to hire new immigrants or foreigners and have those individuals be able to work together with others in their own native language for efficiency) This could DRASTICALLY expedite new employee/user/contractor integration.
+
+-Voice control/hands free mode. (need a “Hey google” style command that also doesnt trigger another users device (ie if im standing next to another user, my initiate hands free mode command should not activate it for them as well. Maybe use the device user name in the command? “Hey Eli’s Phone” if the user has named his device Eli in the app). This will need careful attention to do right.
+
+Do we build a desktop app?
+
+
+- [ ] Configure RevenueCat (potentially in order to use the app stores)
   
-
-- [ ] Deploy API to Vercel
-  - Create Vercel project for API
-  - Add environment variables:
-    * MONGODB_URI
-    * JWT_SECRET (generate: `openssl rand -base64 32`)
-    * STRIPE_SECRET_KEY
-    * STRIPE_WEBHOOK_SECRET
-    * GOOGLE_CLIENT_ID
-    * GOOGLE_CLIENT_SECRET
-    * APPLE_CLIENT_ID
-    * APPLE_TEAM_ID
-    * APPLE_KEY_ID
-    * APPLE_PRIVATE_KEY
-  - Deploy: `vercel --prod`
-  - Test all endpoints
-
-- [ ] Deploy Landing Page to Vercel
-  - Create Vercel project for landing
-  - Point batchmaker.app to Vercel
-  - Verify all legal pages load correctly
-  - Test OAuth flows
-
-- [ ] Deploy Dashboard to Vercel
-  - Create Vercel project for dashboard
-  - Point dashboard.batchmaker.app to Vercel
-  - Connect to WebSocket server
-  - Test real-time updates
 
 ### 2. OAuth Setup
 **Status:** Code ready, needs configuration
 **Estimated Time:** 2-3 hours
-
-- [ ] Google OAuth Setup
-  - Go to console.cloud.google.com
-  - Create new project "Batch Maker"
-  - Enable Google+ API
-  - Create OAuth 2.0 credentials
-  - Add redirect: https://batchmaker.app/auth/callback/google
-  - Save CLIENT_ID and CLIENT_SECRET
-  - Test login flow
 
 - [ ] Apple Sign In Setup
   - Go to developer.apple.com
@@ -83,66 +42,6 @@
   - Download .p8 private key file
   - Save TEAM_ID, KEY_ID, and private key content
   - Test login flow
-
-### 3. Mobile App Updates
-**Status:** Services ready, need integration
-**Estimated Time:** 6-8 hours
-
-- [ ] Add authentication service
-  - Create services/authService.ts (DONE - in artifacts)
-  - Create services/permissionsService.ts (DONE - in artifacts)
-  - Add LoginScreen.tsx (DONE - in artifacts)
-  - Update app/_layout.tsx to check auth on launch
-  - Add logout functionality
-
-- [ ] Update Home Screen
-  - Show user role badge
-  - Hide Reports button based on permissions
-  - Add "Upgrade to Premium" banner for free users
-  - Show sync status indicator
-
-- [ ] Update WorkflowSelectScreen
-  - Hide Edit button based on permissions
-  - Show "Premium Host" badge for synced users
-  - Add "You're synced to [Business Name]" banner
-  - Implement actual WebSocket connection
-
-- [ ] Add "Connect to Business" Prompt
-  - Detect nearby premium hosts on local network
-  - Show modal: "Connect to [Business Name]?"
-  - Handle connection/disconnection
-  - Show connected status in UI
-
-- [ ] Test OAuth in Mobile
-  - Install expo-web-browser
-  - Add deep linking configuration
-  - Test Google Sign In flow
-  - Test Apple Sign In flow
-  - Handle token storage
-
-### 4. WebSocket Real-Time Sync
-**Status:** Not started
-**Estimated Time:** 8-10 hours
-
-- [ ] Create WebSocket server (separate from Vercel)
-  - Deploy to Railway.app or Render.com (Vercel doesn't support long-lived connections)
-  - Use Socket.io for WebSocket server
-  - Handle authentication with JWT
-  - Broadcast batch updates to all connected clients
-  - Handle user connect/disconnect events
-
-- [ ] Premium Host Logic
-  - Premium user opens app → starts WebSocket server
-  - Free users nearby → discover server via mDNS/Bonjour
-  - Show "Connect to [Business Name]?" prompt
-  - Sync workflows/batches in real-time
-
-- [ ] Client Sync Logic
-  - Connect to premium host WebSocket
-  - Subscribe to batch updates
-  - Send local changes to host
-  - Handle conflicts (last-write-wins)
-  - Show sync status icon
 
 ---
 
@@ -220,23 +119,10 @@
 
 ---
 
-## 🔥 HIGH PRIORITY FEATURES
+## Low PRIORITY FEATURES
 
-### Enhanced Reporting & Analytics
-**Status:** Basic reports done, need charts
-**Estimated Time:** 10-12 hours
-
-- [ ] Add chart library to dashboard (Chart.js or Recharts)
-- [ ] Batch completion trends graph (last 30 days)
-- [ ] Ingredient cost breakdown pie chart
-- [ ] Average duration by workflow bar chart
-- [ ] Efficiency score calculation
-- [ ] Export charts as PNG/PDF
-- [ ] Schedule automated email reports
 
 ### Workflow Repository (Premade Templates)
-**Status:** Not started
-**Estimated Time:** 15-20 hours
 
 - [ ] Create 10-15 high-quality template workflows
   - Chocolate chip cookies
@@ -248,7 +134,7 @@
   - Equipment maintenance
   - Opening/closing procedures
 
-- [ ] Build template browser in app
+- [ ] Build template browser in app or link to the website
   - Searchable/filterable
   - Preview before importing
   - One-click import
@@ -283,71 +169,40 @@
   - Show estimated sync time
   - Allow manual IP entry for troubleshooting
 
----
-
-## 🎨 MEDIUM PRIORITY FEATURES
-
-### Photo Features Enhancement
-**Status:** Basic capture done, needs gallery
-**Estimated Time:** 6-8 hours
-
-- [ ] Photo gallery view in reports
-- [ ] Photo comparison (before/after)
-- [ ] Annotate photos with text/arrows
-- [ ] Photo compression settings
-- [ ] Batch photo export as ZIP
-- [ ] Photo timestamps in reports
-
 ### Timer Enhancements
 **Status:** Basic timer done, needs features
 **Estimated Time:** 4-6 hours
 
-- [ ] Multiple simultaneous timers per step
+- [ ] Multiple simultaneous timers per step (allowed but not default)
 - [ ] Customizable timer alerts (sound selection)
 - [ ] Background timer notifications (local notifications)
-- [ ] Timer templates ("Quick 5 min", "Quick 10 min")
-- [ ] Timer history log
-- [ ] Pause/resume functionality
+- [ ] Pause/resume/reset functionality as well as being able to tap it when its stopped and change the timer duration if they desire. this should be included in the batch logs
 
 ### Advanced Step Features
 **Status:** Not started
 **Estimated Time:** 10-15 hours
 
-- [ ] Step dependencies
-  - Can't start Step 5 until Step 3 is complete
-  - Visual dependency graph
-  - Auto-advance to next available step
-
-- [ ] Conditional steps
+- [ ] Conditional steps (not sure im going to use this but its worth considering later)
   - "If Bake Today mode, skip cold ferment step"
   - "If batch size > 2x, show additional mixing step"
 
-- [ ] Temperature logging integration
+- [ ] Temperature logging integration (possibly but sounds like a pain in the ass)
   - Connect Bluetooth thermometers
   - Auto-log temperatures
   - Alert if out of range
 
-- [ ] Weight measurement tracking
+- [ ] Weight measurement tracking (again sounds like more trouble than its worth)
   - Connect Bluetooth scales
   - Auto-populate ingredient amounts
   - Track yield vs expected
 
----
-
-## 🔮 LOW PRIORITY / FUTURE
-
 ### QR Code Batch Tracking
 **Status:** Not started, needs research
-**Estimated Time:** 20+ hours
 
-- [ ] Research thermal printer options
+- [ ] Research thermal printer options. Can we access existing chit machines from the local network? or bluetooth?
   - Brother PocketJet (expensive but mobile)
   - MUNBYN thermal printer (affordable, USB)
   - Zebra label printers (enterprise)
-  
-- [ ] QR code generation
-  - Generate unique code per batch
-  - Include batch ID, workflow, date, operator
   
 - [ ] Thermal printer integration
   - React Native printer library research
@@ -355,15 +210,18 @@
   - Print batch labels
   - Print station assignments
 
+- [ ] QR code generation
+  - Generate unique code per batch
+  - Include batch ID, workflow, date, operator
+
 - [ ] QR scanning
   - Open camera
   - Scan QR code
   - Jump directly to that batch
   - Show batch history
 
-### Advanced UI/UX Polish
+### Advanced UI/UX Polish (Super low priority)
 **Status:** Ongoing
-**Estimated Time:** Varies
 
 - [ ] Loading states everywhere
 - [ ] Skeleton screens while loading
@@ -383,6 +241,7 @@
 - [ ] Keyboard navigation (web dashboard)
 - [ ] Color blind friendly palette
 - [ ] WCAG 2.1 AA compliance audit
+- [ ] Language pack downloads with translation function if the recipes and instructions are not in the desired language (translations need a disclaimer)
 
 ---
 
@@ -431,7 +290,6 @@
 - [ ] Predictive batch scheduling
 - [ ] Anomaly detection (unusual duration/yield)
 - [ ] Voice commands for hands-free operation
-- [ ] Auto-generate workflow from photos
 
 ### Community Features
 - [ ] Recipe sharing marketplace

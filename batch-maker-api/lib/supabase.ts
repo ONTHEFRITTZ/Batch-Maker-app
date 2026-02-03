@@ -7,6 +7,17 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
+// Create authenticated client with user token (for API routes)
+export function createAuthenticatedClient(authToken: string) {
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    },
+  });
+}
+
 // Database types
 export interface Profile {
   id: string;

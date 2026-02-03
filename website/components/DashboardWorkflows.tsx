@@ -439,7 +439,7 @@ export default function Workflows({
 
                   <div className="flex gap-2 flex-wrap">
                     <Link 
-                      href={`/workflows/${workflow.id}`} 
+                      href={`/workflows/edit?id=${workflow.id}`} 
                       className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-medium hover:bg-blue-600 transition-colors"
                     >
                       View
