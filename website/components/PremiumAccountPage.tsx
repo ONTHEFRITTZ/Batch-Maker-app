@@ -108,21 +108,6 @@ export default function Account() {
     }
   }
 
-  async function handleChangeEmail() {
-    const newEmail = prompt('Enter your new email address:');
-    if (!newEmail) return;
-
-    try {
-      const { error } = await supabase.auth.updateUser({ email: newEmail });
-      if (error) throw error;
-
-      alert('Verification email sent to your new address. Please check your inbox.');
-    } catch (error) {
-      console.error('Error changing email:', error);
-      alert('Failed to change email');
-    }
-  }
-
   async function handleChangePassword() {
     const newPassword = prompt('Enter your new password (min 6 characters):');
     if (!newPassword || newPassword.length < 6) {
@@ -283,14 +268,41 @@ export default function Account() {
             <div style={styles.card}>
               <h2 style={styles.cardTitle}>Account Information</h2>
               
+              {/* Primary Email (Locked) */}
               <div style={styles.field}>
-                <label style={styles.label}>Email</label>
-                <div style={styles.fieldRow}>
-                  <div style={styles.value}>{user?.email}</div>
-                  <button onClick={handleChangeEmail} style={styles.smallButton}>
-                    Change
-                  </button>
+                <label style={styles.label}>
+                  Primary Email
+                  <span style={styles.providerBadge}>
+                    {profile?.subscription_platform === 'ios' ? 'Apple Account' : 
+                     profile?.subscription_platform === 'android' ? 'Google Account' : 
+                     'Account Email'}
+                  </span>
+                </label>
+                <div style={styles.lockedEmailContainer}>
+                  <div style={styles.lockedEmail}>{user?.email}</div>
+                  <span style={styles.lockIcon}>🔒</span>
                 </div>
+                <p style={styles.helpText}>
+                  This email is connected to your subscription and cannot be changed here.
+                </p>
+              </div>
+
+              {/* Business Email (Optional) */}
+              <div style={styles.field}>
+                <label style={styles.label}>
+                  Business Email
+                  <span style={styles.optionalBadge}>Optional</span>
+                </label>
+                <input
+                  type="email"
+                  value={profile?.business_email || ''}
+                  onChange={(e) => handleUpdateProfile('business_email', e.target.value)}
+                  placeholder="business@example.com"
+                  style={styles.input}
+                />
+                <p style={styles.helpText}>
+                  Separate email for business correspondence, invoices, and team notifications.
+                </p>
               </div>
 
               <div style={styles.field}>
@@ -670,11 +682,53 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
   },
   label: {
-    display: 'block',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.5rem',
     fontSize: '0.875rem',
     fontWeight: '500',
     color: '#374151',
     marginBottom: '0.5rem',
+  },
+  providerBadge: {
+    fontSize: '0.75rem',
+    padding: '0.125rem 0.5rem',
+    backgroundColor: '#dbeafe',
+    color: '#1e40af',
+    borderRadius: '0.375rem',
+    fontWeight: '600',
+  },
+  optionalBadge: {
+    fontSize: '0.75rem',
+    padding: '0.125rem 0.5rem',
+    backgroundColor: '#f3f4f6',
+    color: '#6b7280',
+    borderRadius: '0.375rem',
+    fontWeight: '500',
+  },
+  lockedEmailContainer: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    border: '1px solid #e5e7eb',
+    borderRadius: '0.5rem',
+    padding: '0.625rem 0.875rem',
+  },
+  lockedEmail: {
+    flex: 1,
+    fontSize: '1rem',
+    color: '#6b7280',
+  },
+  lockIcon: {
+    fontSize: '1.125rem',
+    marginLeft: '0.5rem',
+  },
+  helpText: {
+    fontSize: '0.75rem',
+    color: '#6b7280',
+    marginTop: '0.375rem',
+    lineHeight: '1.25',
   },
   value: {
     fontSize: '1rem',

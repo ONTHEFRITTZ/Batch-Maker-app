@@ -11,7 +11,7 @@ import { createBatchCompletionReport } from "../../services/reports";
 import BatchTimer from '../components/BatchTimer';
 import YouTubeVideo from '../components/YouTubeVideo';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useVoiceCommands, VoiceCommand } from '../../android/app/src/hooks/useVoiceCommands';
+import { useVoiceCommands, VoiceCommand } from '../hooks/useVoiceCommands';
 
 // Haptic feedback helpers
 const haptics = {

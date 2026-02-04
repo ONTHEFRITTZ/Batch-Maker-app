@@ -256,7 +256,7 @@ export default function EnhancedDashboard() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-lg text-gray-500">Loading Enhanced Dashboard...</div>
+        <div className="text-lg text-gray-500">Loading Dashboard...</div>
       </div>
     );
   }
