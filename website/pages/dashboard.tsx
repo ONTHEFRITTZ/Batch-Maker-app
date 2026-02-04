@@ -285,13 +285,20 @@ export default function EnhancedDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen dashboard-bg">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 py-4">
+      <header className="glass-card border-b border-gray-200 py-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
-          <div>
-            <h1 className="text-2xl font-semibold text-gray-900">Enhanced Dashboard</h1>
-            {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
+          <div className="flex items-center gap-4">
+            <img 
+              src="/assets/images/batch-maker-logo.png" 
+              alt="Batch Maker" 
+              className="h-10 w-10 object-contain"
+            />
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">Enhanced Dashboard</h1>
+              {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
+            </div>
           </div>
           <div className="relative">
             <button 
@@ -332,10 +339,10 @@ export default function EnhancedDashboard() {
       </header>
 
       {/* Navigation Tabs */}
-      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200">
-        <div className="flex gap-2">
+      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200 glass-card sticky top-[72px] z-40">
+        <div className="flex gap-2 overflow-x-auto">
           <button 
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
               activeView === 'overview' 
                 ? 'text-blue-600 border-blue-600' 
                 : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -345,7 +352,7 @@ export default function EnhancedDashboard() {
             Overview
           </button>
           <button 
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
               activeView === 'workflows' 
                 ? 'text-blue-600 border-blue-600' 
                 : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -355,7 +362,7 @@ export default function EnhancedDashboard() {
             Workflows
           </button>
           <button 
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
               activeView === 'inventory' 
                 ? 'text-blue-600 border-blue-600' 
                 : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -365,7 +372,7 @@ export default function EnhancedDashboard() {
             Inventory
           </button>
           <button 
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
               activeView === 'calendar' 
                 ? 'text-blue-600 border-blue-600' 
                 : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -376,7 +383,7 @@ export default function EnhancedDashboard() {
           </button>
           {isPremium && (
             <button 
-              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
                 activeView === 'schedule' 
                   ? 'text-blue-600 border-blue-600' 
                   : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -387,7 +394,7 @@ export default function EnhancedDashboard() {
             </button>
           )}
           <button 
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 ${
+            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
               activeView === 'analytics' 
                 ? 'text-blue-600 border-blue-600' 
                 : 'text-gray-500 border-transparent hover:text-gray-700'
@@ -399,7 +406,7 @@ export default function EnhancedDashboard() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
+      <div className="max-w-7xl mx-auto px-6 py-8 relative z-10">
         {activeView === 'overview' && <Overview {...sharedProps} />}
         {activeView === 'workflows' && <Workflows {...sharedProps} />}
         {activeView === 'inventory' && <Inventory {...sharedProps} />}

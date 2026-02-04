@@ -1,15 +1,10 @@
-'use client';
-
+// pages/account.tsx
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-
-// Import your existing premium account page
 import PremiumAccountPage from '../components/PremiumAccountPage';
-
-// The new free user account page
 import FreeAccountPage from '../components/FreeAccountPage';
 
-export default function AccountPageRouter() {
+export default function AccountPage() {
   const [user, setUser] = useState<any>(null);
   const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(true);

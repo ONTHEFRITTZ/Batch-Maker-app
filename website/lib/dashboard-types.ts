@@ -100,6 +100,7 @@ export interface ScheduledBatch {
   notes?: string;
   created_at: string;
   updated_at: string;
+  completed_at?: string;
 }
 
 export interface Profile {
