@@ -14,12 +14,13 @@ body {
 
 /* Background image for dashboard */
 .dashboard-bg {
-  background-image: url('../assets/images/dashboard-bg.png');
+  background-image: url('/assets/images/dashboard-bg.png');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
+
 
 .dashboard-bg::before {
   content: '';
