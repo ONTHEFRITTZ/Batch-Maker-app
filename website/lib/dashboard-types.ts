@@ -7,6 +7,7 @@ export interface Workflow {
   claimed_by?: string;
   claimed_by_name?: string;
   deleted_at?: string;
+  location_id?: string; // ADDED for location support
 }
 
 export interface Batch {
@@ -16,6 +17,9 @@ export interface Batch {
   created_at: string;
   current_step_index?: number;
   steps?: any[];
+  location_id?: string; // ADDED for location support
+  completed_at?: string; // ADDED (was referenced in Overview component)
+  active_timers?: any[]; // ADDED (was referenced in Overview component)
   [key: string]: any;
 }
 
@@ -40,6 +44,8 @@ export interface BatchCompletionReport {
   temperature_log?: any[];
   ingredients_used?: any[];
   archived?: boolean;
+  location_id?: string; // ADDED for location support
+  user_id?: string; // ADDED (referenced in Overview component)
 }
 
 export interface InventoryItem {
@@ -55,6 +61,7 @@ export interface InventoryItem {
   notes?: string;
   last_updated: string;
   created_at: string;
+  location_id?: string; // ADDED for location support
 }
 
 export interface InventoryTransaction {
@@ -68,6 +75,7 @@ export interface InventoryTransaction {
   notes?: string;
   created_by: string;
   created_at: string;
+  location_id?: string; // ADDED for location support
 }
 
 export interface ShoppingListItem {
@@ -83,6 +91,7 @@ export interface ShoppingListItem {
   notes?: string;
   created_at: string;
   updated_at: string;
+  location_id?: string; // ADDED for location support
 }
 
 export interface ScheduledBatch {
@@ -101,6 +110,7 @@ export interface ScheduledBatch {
   created_at: string;
   updated_at: string;
   completed_at?: string;
+  location_id?: string; // ADDED for location support
 }
 
 export interface Profile {
@@ -148,6 +158,16 @@ export interface ActiveSession {
   status: 'idle' | 'working' | 'offline';
 }
 
+// ADDED: Location interface
+export interface Location {
+  id: string;
+  user_id: string;
+  name: string;
+  address?: string;
+  is_default?: boolean;
+  created_at?: string;
+}
+
 export interface DashboardProps {
   user: any;
   profile: Profile | null;
@@ -167,4 +187,8 @@ export interface DashboardProps {
   fetchScheduledBatches: () => void;
   fetchWorkflows: () => void;
   fetchBatches: () => void;
+  
+  // ADDED: Location support
+  locations?: Location[];
+  selectedLocationId?: string;
 }

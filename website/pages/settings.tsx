@@ -26,16 +26,42 @@ interface Invitation {
   created_at: string;
 }
 
+interface Location {
+  id: string;
+  user_id: string;
+  name: string;
+  address: string;
+  phone: string;
+  manager_name: string;
+  operating_hours: string;
+  notes: string;
+  is_default: boolean;
+  created_at: string;
+}
+
 export default function DashboardSettings() {
   const [user, setUser] = useState<any>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [isPremium, setIsPremium] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'member' | 'admin'>('member');
   const [inviting, setInviting] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<Location | null>(null);
+
+  const [locationFormData, setLocationFormData] = useState({
+    name: '',
+    address: '',
+    phone: '',
+    manager_name: '',
+    operating_hours: '',
+    notes: '',
+    is_default: false,
+  });
 
   useEffect(() => {
     checkUser();
@@ -66,6 +92,7 @@ export default function DashboardSettings() {
       await fetchInvitations(session.user.id);
     }
 
+    await fetchLocations(session.user.id);
     setLoading(false);
   }
 
@@ -89,6 +116,17 @@ export default function DashboardSettings() {
     if (!error && data) setInvitations(data);
   }
 
+  async function fetchLocations(userId: string) {
+    const { data, error } = await supabase
+      .from('locations')
+      .select('*')
+      .eq('user_id', userId)
+      .order('is_default', { ascending: false })
+      .order('name');
+
+    if (!error && data) setLocations(data);
+  }
+
   async function handleSendInvite() {
     if (!inviteEmail || !inviteEmail.includes('@')) {
       alert('Please enter a valid email address');
@@ -98,7 +136,6 @@ export default function DashboardSettings() {
     setInviting(true);
 
     try {
-      // Check if user is already a team member
       const existingMember = teamMembers.find(
         m => m.profiles?.email?.toLowerCase() === inviteEmail.toLowerCase()
       );
@@ -109,7 +146,6 @@ export default function DashboardSettings() {
         return;
       }
 
-      // Check if invitation already exists
       const existingInvite = invitations.find(
         inv => inv.email.toLowerCase() === inviteEmail.toLowerCase()
       );
@@ -120,7 +156,6 @@ export default function DashboardSettings() {
         return;
       }
 
-      // Create invitation
       const { error } = await supabase.from('invitations').insert({
         business_id: user.id,
         email: inviteEmail.toLowerCase(),
@@ -192,18 +227,119 @@ export default function DashboardSettings() {
     await fetchTeamMembers(user.id);
   }
 
+  function openLocationModal(location?: Location) {
+    if (location) {
+      setEditingLocation(location);
+      setLocationFormData({
+        name: location.name,
+        address: location.address || '',
+        phone: location.phone || '',
+        manager_name: location.manager_name || '',
+        operating_hours: location.operating_hours || '',
+        notes: location.notes || '',
+        is_default: location.is_default,
+      });
+    } else {
+      setEditingLocation(null);
+      setLocationFormData({
+        name: '',
+        address: '',
+        phone: '',
+        manager_name: '',
+        operating_hours: '',
+        notes: '',
+        is_default: locations.length === 0, // First location is default
+      });
+    }
+    setShowLocationModal(true);
+  }
+
+  async function handleSaveLocation() {
+    if (!locationFormData.name.trim()) {
+      alert('Please enter a location name');
+      return;
+    }
+
+    try {
+      if (editingLocation) {
+        // Update existing location
+        const { error } = await supabase
+          .from('locations')
+          .update({
+            ...locationFormData,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', editingLocation.id);
+
+        if (error) throw error;
+        alert('Location updated successfully!');
+      } else {
+        // Create new location
+        const { error } = await supabase
+          .from('locations')
+          .insert({
+            user_id: user.id,
+            ...locationFormData,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+
+        if (error) throw error;
+        alert('Location added successfully!');
+      }
+
+      setShowLocationModal(false);
+      setEditingLocation(null);
+      await fetchLocations(user.id);
+    } catch (error) {
+      console.error('Error saving location:', error);
+      alert('Failed to save location');
+    }
+  }
+
+  async function handleDeleteLocation(locationId: string) {
+    if (!confirm('Delete this location? All associated data will remain but will no longer be linked to this location.')) return;
+
+    const { error } = await supabase
+      .from('locations')
+      .delete()
+      .eq('id', locationId);
+
+    if (error) {
+      alert('Failed to delete location');
+      return;
+    }
+
+    alert('Location deleted successfully!');
+    await fetchLocations(user.id);
+  }
+
+  async function handleSetDefaultLocation(locationId: string) {
+    const { error } = await supabase
+      .from('locations')
+      .update({ is_default: true, updated_at: new Date().toISOString() })
+      .eq('id', locationId);
+
+    if (error) {
+      alert('Failed to set default location');
+      return;
+    }
+
+    await fetchLocations(user.id);
+  }
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center relative z-10">
         <div className="text-lg text-gray-500">Loading Settings...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen relative z-10">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 py-4">
+      <header className="glass-card border-b border-gray-200 py-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Settings</h1>
@@ -215,10 +351,112 @@ export default function DashboardSettings() {
       </header>
 
       <div className="max-w-5xl mx-auto px-6 py-8">
+        {/* Locations Section */}
+        <div className="glass-card rounded-xl p-6 shadow-sm mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-gray-900">Locations</h2>
+            <button
+              onClick={() => openLocationModal()}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+            >
+              <span>➕</span>
+              Add Location
+            </button>
+          </div>
+          <p className="text-sm text-gray-600 mb-6">
+            Manage your business locations. Track inventory, workflows, and analytics separately for each location.
+          </p>
+
+          {locations.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-400 text-sm italic">No locations added yet.</p>
+              <p className="text-gray-500 text-xs mt-2">Add your first location to start tracking by location.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {locations.map(location => (
+                <div key={location.id} className="p-4 bg-gray-50 rounded-lg border-2 border-gray-200">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="font-semibold text-gray-900 text-lg">{location.name}</div>
+                        {location.is_default && (
+                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                            Default
+                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-1 text-sm text-gray-600">
+                        {location.address && (
+                          <div className="flex items-start gap-2">
+                            <span className="text-gray-400">📍</span>
+                            <span>{location.address}</span>
+                          </div>
+                        )}
+                        {location.phone && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400">📞</span>
+                            <span>{location.phone}</span>
+                          </div>
+                        )}
+                        {location.manager_name && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400">👤</span>
+                            <span>Manager: {location.manager_name}</span>
+                          </div>
+                        )}
+                        {location.operating_hours && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400">🕐</span>
+                            <span>{location.operating_hours}</span>
+                          </div>
+                        )}
+                        {location.notes && (
+                          <div className="flex items-start gap-2 mt-2 pt-2 border-t border-gray-200">
+                            <span className="text-gray-400">📝</span>
+                            <span className="italic">{location.notes}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {!location.is_default && (
+                        <button
+                          onClick={() => handleSetDefaultLocation(location.id)}
+                          className="px-3 py-1.5 text-sm bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                          title="Set as default location"
+                        >
+                          Set Default
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openLocationModal(location)}
+                        className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+                        title="Edit location"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteLocation(location.id)}
+                        className="px-3 py-1.5 text-sm bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors"
+                        title="Delete location"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Team Management Section (Premium Only) */}
         {isPremium && (
           <>
-            <div className="bg-white rounded-xl p-6 shadow-sm mb-6">
+            <div className="glass-card rounded-xl p-6 shadow-sm mb-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold text-gray-900">Team Member Settings</h2>
                 <button
@@ -328,7 +566,7 @@ export default function DashboardSettings() {
 
             {/* Pending Invitations */}
             {invitations.length > 0 && (
-              <div className="bg-white rounded-xl p-6 shadow-sm mb-6">
+              <div className="glass-card rounded-xl p-6 shadow-sm mb-6">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Pending Invitations</h3>
                 <div className="space-y-3">
                   {invitations.map(invitation => (
@@ -354,7 +592,7 @@ export default function DashboardSettings() {
         )}
 
         {/* General Settings */}
-        <div className="bg-white rounded-xl p-6 shadow-sm">
+        <div className="glass-card rounded-xl p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">General Settings</h2>
           
           <div className="space-y-4">
@@ -395,6 +633,131 @@ export default function DashboardSettings() {
           </div>
         </div>
       </div>
+
+      {/* Location Modal */}
+      {showLocationModal && (
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4"
+          style={{ zIndex: 9999 }}
+          onClick={() => setShowLocationModal(false)}
+        >
+          <div 
+            className="bg-white rounded-xl p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto"
+            style={{ zIndex: 10000, position: 'relative' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold mb-6 text-gray-900">
+              {editingLocation ? 'Edit Location' : 'Add New Location'}
+            </h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Location Name *
+                </label>
+                <input
+                  type="text"
+                  value={locationFormData.name}
+                  onChange={(e) => setLocationFormData({...locationFormData, name: e.target.value})}
+                  placeholder="e.g., Downtown Bakery"
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={locationFormData.address}
+                  onChange={(e) => setLocationFormData({...locationFormData, address: e.target.value})}
+                  placeholder="123 Main St, City, State 12345"
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={locationFormData.phone}
+                  onChange={(e) => setLocationFormData({...locationFormData, phone: e.target.value})}
+                  placeholder="(555) 123-4567"
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Manager/Contact Person
+                </label>
+                <input
+                  type="text"
+                  value={locationFormData.manager_name}
+                  onChange={(e) => setLocationFormData({...locationFormData, manager_name: e.target.value})}
+                  placeholder="John Doe"
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Operating Hours
+                </label>
+                <input
+                  type="text"
+                  value={locationFormData.operating_hours}
+                  onChange={(e) => setLocationFormData({...locationFormData, operating_hours: e.target.value})}
+                  placeholder="Mon-Fri 6am-6pm"
+                  className="w-full p-3 border border-gray-300 rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Notes
+                </label>
+                <textarea
+                  value={locationFormData.notes}
+                  onChange={(e) => setLocationFormData({...locationFormData, notes: e.target.value})}
+                  placeholder="Additional information about this location..."
+                  className="w-full p-3 border border-gray-300 rounded-lg min-h-[80px]"
+                />
+              </div>
+
+              {!editingLocation && locations.length > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={locationFormData.is_default}
+                    onChange={(e) => setLocationFormData({...locationFormData, is_default: e.target.checked})}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Set as default location</span>
+                </label>
+              )}
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={handleSaveLocation}
+                className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                {editingLocation ? 'Save Changes' : 'Add Location'}
+              </button>
+              <button
+                onClick={() => setShowLocationModal(false)}
+                className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invite Modal */}
       {showInviteModal && (

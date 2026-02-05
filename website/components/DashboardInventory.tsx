@@ -167,12 +167,106 @@ export default function Inventory({
   }
 
   async function updateShoppingItemStatus(id: string, status: 'pending' | 'ordered' | 'received') {
-    const { error } = await supabase
-      .from('shopping_list')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id);
+    try {
+      // Update shopping list status
+      const { error: updateError } = await supabase
+        .from('shopping_list')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
 
-    if (!error) await fetchShoppingList();
+      if (updateError) throw updateError;
+
+      // If marking as received, add to inventory
+      if (status === 'received') {
+        const shoppingItem = shoppingList.find(item => item.id === id);
+        if (!shoppingItem) {
+          alert('Shopping item not found');
+          return;
+        }
+
+        // Check if item already exists in inventory (case-insensitive match)
+        const existingItem = inventoryItems.find(
+          item => item.name.toLowerCase() === shoppingItem.item_name.toLowerCase()
+        );
+
+        if (existingItem) {
+          // Update existing inventory item
+          const newQuantity = existingItem.quantity + shoppingItem.quantity;
+          
+          const { error: inventoryError } = await supabase
+            .from('inventory_items')
+            .update({ 
+              quantity: newQuantity,
+              last_updated: new Date().toISOString()
+            })
+            .eq('id', existingItem.id);
+
+          if (inventoryError) throw inventoryError;
+
+          // Record transaction
+          await supabase.from('inventory_transactions').insert({
+            user_id: user.id,
+            item_id: existingItem.id,
+            type: 'add',
+            quantity: shoppingItem.quantity,
+            cost: shoppingItem.estimated_cost || null,
+            notes: `Added from order list${shoppingItem.notes ? ': ' + shoppingItem.notes : ''}`,
+            created_by: user.email,
+            created_at: new Date().toISOString(),
+          });
+
+          alert(`✅ Added ${shoppingItem.quantity} ${shoppingItem.unit} to existing inventory: ${existingItem.name}`);
+        } else {
+          // Create new inventory item
+          const { data: newItem, error: createError } = await supabase
+            .from('inventory_items')
+            .insert({
+              user_id: user.id,
+              name: shoppingItem.item_name,
+              quantity: shoppingItem.quantity,
+              unit: shoppingItem.unit,
+              supplier: shoppingItem.supplier || '',
+              cost_per_unit: shoppingItem.estimated_cost && shoppingItem.quantity > 0 
+                ? shoppingItem.estimated_cost / shoppingItem.quantity 
+                : 0,
+              low_stock_threshold: 0,
+              category: '',
+              notes: shoppingItem.notes || '',
+              last_updated: new Date().toISOString(),
+              created_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (createError) throw createError;
+
+          // Record transaction for new item
+          if (newItem) {
+            await supabase.from('inventory_transactions').insert({
+              user_id: user.id,
+              item_id: newItem.id,
+              type: 'add',
+              quantity: shoppingItem.quantity,
+              cost: shoppingItem.estimated_cost || null,
+              notes: `Initial stock from order list`,
+              created_by: user.email,
+              created_at: new Date().toISOString(),
+            });
+          }
+
+          alert(`✅ Created new inventory item: ${shoppingItem.item_name} (${shoppingItem.quantity} ${shoppingItem.unit})`);
+        }
+
+        // Refresh inventory data
+        await fetchInventoryItems();
+        await fetchInventoryTransactions();
+      }
+
+      await fetchShoppingList();
+    } catch (error) {
+      console.error('Error updating shopping item:', error);
+      alert('Failed to update shopping item status');
+    }
   }
 
   return (
@@ -282,7 +376,7 @@ export default function Inventory({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">Pending</h3>
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">📋 Pending</h3>
               <div className="space-y-3">
                 {shoppingList.filter(i => i.status === 'pending').map(item => (
                   <div key={item.id} className={`bg-white p-4 rounded-lg border-l-4 ${
@@ -310,8 +404,8 @@ export default function Inventory({
                   <div key={item.id} className="bg-white p-4 rounded-lg border border-gray-200">
                     <div className="text-sm font-medium text-gray-900 mb-1">{item.item_name}</div>
                     <div className="text-xs text-gray-500 mb-2">{item.quantity} {item.unit}</div>
-                    <button onClick={() => updateShoppingItemStatus(item.id, 'received')} className="w-full px-3 py-1 bg-blue-500 text-white rounded-md text-xs hover:bg-blue-600 transition-colors">
-                      Mark Received
+                    <button onClick={() => updateShoppingItemStatus(item.id, 'received')} className="w-full px-3 py-1 bg-green-500 text-white rounded-md text-xs hover:bg-green-600 transition-colors">
+                      Mark Received ✓
                     </button>
                   </div>
                 ))}
@@ -325,6 +419,7 @@ export default function Inventory({
                   <div key={item.id} className="bg-white p-4 rounded-lg border border-gray-200 opacity-70">
                     <div className="text-sm font-medium text-gray-900 mb-1">{item.item_name}</div>
                     <div className="text-xs text-gray-500">{item.quantity} {item.unit}</div>
+                    <div className="text-xs text-green-600 mt-1">✓ Added to inventory</div>
                   </div>
                 ))}
               </div>

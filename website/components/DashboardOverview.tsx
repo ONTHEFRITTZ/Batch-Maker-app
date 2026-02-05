@@ -15,6 +15,8 @@ export default function Overview({
   user,
   profile,
   isPremium,
+  locations = [],
+  selectedLocationId = 'all',
   fetchShoppingList,
 }: DashboardProps) {
   const [addShoppingItemModalOpen, setAddShoppingItemModalOpen] = useState(false);
@@ -29,13 +31,17 @@ export default function Overview({
   });
   const [upcomingShifts, setUpcomingShifts] = useState<any[]>([]);
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
+  const [locationStats, setLocationStats] = useState<any[]>([]);
 
   useEffect(() => {
     if (isPremium && user) {
       fetchUpcomingShifts();
     }
     loadRecentActivity();
-  }, [user, isPremium, batchReports]);
+    if (selectedLocationId === 'all' && locations.length > 0) {
+      loadLocationComparisons();
+    }
+  }, [user, isPremium, batchReports, selectedLocationId, locations]);
 
   async function fetchUpcomingShifts() {
     const today = new Date().toISOString().split('T')[0];
@@ -66,6 +72,57 @@ export default function Overview({
       }));
 
     setRecentActivity(activities);
+  }
+
+  async function loadLocationComparisons() {
+    const last30Days = new Date();
+    last30Days.setDate(last30Days.getDate() - 30);
+
+    const stats = await Promise.all(
+      locations.map(async (location) => {
+        // Fetch batch reports for this location
+        const { data: reports } = await supabase
+          .from('batch_completion_reports')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('location_id', location.id)
+          .gte('timestamp', last30Days.toISOString());
+
+        // Fetch inventory for this location
+        const { data: inventory } = await supabase
+          .from('inventory_items')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('location_id', location.id);
+
+        // Calculate stats
+        const batchesCompleted = reports?.length || 0;
+        const totalRevenue = reports?.reduce((sum, r) => {
+          const template = batchTemplates.find(t => t.workflow_name === r.workflow_name);
+          return sum + ((template?.selling_price || 0) * r.batch_size_multiplier);
+        }, 0) || 0;
+        const totalCost = reports?.reduce((sum, r) => sum + (r.total_cost || 0), 0) || 0;
+        const profit = totalRevenue - totalCost;
+        const inventoryValue = inventory?.reduce((sum, item) => 
+          sum + (item.quantity * (item.cost_per_unit || 0)), 0
+        ) || 0;
+        const lowStockCount = inventory?.filter(item => 
+          item.low_stock_threshold && item.quantity <= item.low_stock_threshold
+        ).length || 0;
+
+        return {
+          location,
+          batchesCompleted,
+          totalRevenue,
+          totalCost,
+          profit,
+          inventoryValue,
+          lowStockCount,
+        };
+      })
+    );
+
+    setLocationStats(stats);
   }
 
   const lowStockItems = inventoryItems.filter(item => 
@@ -105,6 +162,9 @@ export default function Overview({
     return new Date(m.last_active) > fiveMinutesAgo;
   }) : [];
 
+  const showingAllLocations = selectedLocationId === 'all' && locations.length > 1;
+  const selectedLocation = locations.find(loc => loc.id === selectedLocationId);
+
   async function handleAddShoppingItem() {
     if (!shoppingFormData.item_name || shoppingFormData.quantity <= 0) {
       alert('Please fill in required fields');
@@ -115,6 +175,7 @@ export default function Overview({
       const { error } = await supabase.from('shopping_list').insert({
         user_id: user.id,
         ...shoppingFormData,
+        location_id: selectedLocationId !== 'all' ? selectedLocationId : null,
         status: 'pending',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -150,6 +211,16 @@ export default function Overview({
             day: 'numeric' 
           })}
         </p>
+        {showingAllLocations && (
+          <p className="text-sm text-blue-600 mt-2">
+            📍 Viewing aggregate stats across all {locations.length} locations
+          </p>
+        )}
+        {selectedLocation && (
+          <p className="text-sm text-blue-600 mt-2">
+            📍 Currently viewing: {selectedLocation.name}
+          </p>
+        )}
       </div>
 
       {/* Today's Stats */}
@@ -157,7 +228,7 @@ export default function Overview({
         <Link href="/dashboard?view=workflows" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-blue-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Active Batches</h3>
-            <span className="text-2xl"></span>
+            <span className="text-2xl">🔄</span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{activeBatches.length}</div>
           <div className="text-xs text-blue-600">View workflows →</div>
@@ -166,7 +237,7 @@ export default function Overview({
         <Link href="/dashboard?view=analytics"  className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-green-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Completed Today</h3>
-            <span className="text-2xl"></span>
+            <span className="text-2xl">✅</span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{completedToday.length}</div>
           <div className="text-xs text-green-600">View analytics →</div>
@@ -175,7 +246,7 @@ export default function Overview({
         <Link href="/dashboard?view=calendar" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-purple-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Scheduled Today</h3>
-            <span className="text-2xl"></span>
+            <span className="text-2xl">📅</span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{scheduledToday.length}</div>
           <div className="text-xs text-purple-600">View calendar →</div>
@@ -185,7 +256,7 @@ export default function Overview({
           <Link href="/dashboard?view=schedule" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-orange-500 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Team Online</h3>
-              <span className="text-2xl"></span>
+              <span className="text-2xl">👥</span>
             </div>
             <div className="text-3xl font-bold text-gray-900 mb-1">
               {teamMembersOnline.length}/{networkMembers.length}
@@ -196,7 +267,7 @@ export default function Overview({
           <Link href="/upgrade" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-yellow-500 bg-gradient-to-br from-yellow-50 to-orange-50 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Upgrade</h3>
-              <span className="text-2xl"></span>
+              <span className="text-2xl">⭐</span>
             </div>
             <div className="text-sm font-semibold text-gray-900 mb-1">Go Premium</div>
             <div className="text-xs text-yellow-700">Unlock team features →</div>
@@ -204,11 +275,105 @@ export default function Overview({
         )}
       </div>
 
+      {/* Location Comparison Section - Only show when viewing all locations */}
+      {showingAllLocations && locationStats.length > 0 && (
+        <div className="glass-card rounded-xl p-6 shadow-sm mb-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <span>📊</span>
+            Location Performance Comparison (Last 30 Days)
+          </h2>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {locationStats.map((stat) => (
+              <div key={stat.location.id} className="p-4 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg border-2 border-blue-200">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-lg text-gray-900">
+                    📍 {stat.location.name}
+                  </h3>
+                  {stat.location.is_default && (
+                    <span className="text-xs px-2 py-1 bg-blue-500 text-white rounded-full font-medium">
+                      Default
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Batches</div>
+                    <div className="text-xl font-bold text-gray-900">{stat.batchesCompleted}</div>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Revenue</div>
+                    <div className="text-xl font-bold text-green-600">${stat.totalRevenue.toFixed(0)}</div>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Profit</div>
+                    <div className={`text-xl font-bold ${stat.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      ${stat.profit.toFixed(0)}
+                    </div>
+                  </div>
+                  <div className="bg-white/80 p-3 rounded-lg">
+                    <div className="text-xs text-gray-500 mb-1">Inventory Value</div>
+                    <div className="text-xl font-bold text-blue-600">${stat.inventoryValue.toFixed(0)}</div>
+                  </div>
+                </div>
+
+                {stat.lowStockCount > 0 && (
+                  <div className="bg-red-100 border border-red-300 rounded-lg p-2 text-center">
+                    <span className="text-sm text-red-700 font-medium">
+                      ⚠️ {stat.lowStockCount} low stock item{stat.lowStockCount !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Summary Stats */}
+          <div className="mt-4 pt-4 border-t-2 border-gray-200">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="text-center">
+                <div className="text-xs text-gray-500 mb-1">Top Performer (Revenue)</div>
+                <div className="text-sm font-bold text-blue-600">
+                  {locationStats.reduce((max, stat) => 
+                    stat.totalRevenue > max.totalRevenue ? stat : max
+                  ).location.name}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-500 mb-1">Most Productive</div>
+                <div className="text-sm font-bold text-green-600">
+                  {locationStats.reduce((max, stat) => 
+                    stat.batchesCompleted > max.batchesCompleted ? stat : max
+                  ).location.name}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-500 mb-1">Highest Profit</div>
+                <div className="text-sm font-bold text-purple-600">
+                  {locationStats.reduce((max, stat) => 
+                    stat.profit > max.profit ? stat : max
+                  ).location.name}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-gray-500 mb-1">Largest Inventory</div>
+                <div className="text-sm font-bold text-orange-600">
+                  {locationStats.reduce((max, stat) => 
+                    stat.inventoryValue > max.inventoryValue ? stat : max
+                  ).location.name}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Alerts Section */}
       {(lowStockItems.length > 0 || urgentShoppingItems.length > 0 || activeBatches.some(b => b.active_timers?.length > 0)) && (
         <div className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-red-500 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <span className="text-xl"></span>
+            <span className="text-xl">⚠️</span>
             Alerts & Notifications
           </h3>
           <div className="space-y-2">
@@ -267,7 +432,7 @@ export default function Overview({
               href="/workflows/create"
               className="flex flex-col items-center justify-center p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2"></span>
+              <span className="text-3xl mb-2">➕</span>
               <span className="text-sm font-medium text-gray-700 text-center">New Workflow</span>
             </Link>
             
@@ -275,7 +440,7 @@ export default function Overview({
               href="/dashboard?view=calendar"
               className="flex flex-col items-center justify-center p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2"></span>
+              <span className="text-3xl mb-2">📅</span>
               <span className="text-sm font-medium text-gray-700 text-center">Schedule Batch</span>
             </Link>
 
@@ -283,7 +448,7 @@ export default function Overview({
               href="/dashboard?view=inventory"
               className="flex flex-col items-center justify-center p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2"></span>
+              <span className="text-3xl mb-2">📦</span>
               <span className="text-sm font-medium text-gray-700 text-center">Check Inventory</span>
             </Link>
 
@@ -293,7 +458,7 @@ export default function Overview({
                   href="/dashboard?view=schedule"
                   className="flex flex-col items-center justify-center p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
                 >
-                  <span className="text-3xl mb-2"></span>
+                  <span className="text-3xl mb-2">👥</span>
                   <span className="text-sm font-medium text-gray-700 text-center">Manage Team</span>
                 </Link>
 
@@ -301,7 +466,7 @@ export default function Overview({
                   href="/settings"
                   className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <span className="text-3xl mb-2"></span>
+                  <span className="text-3xl mb-2">⚙️</span>
                   <span className="text-sm font-medium text-gray-700 text-center">Team Settings</span>
                 </Link>
               </>
@@ -311,7 +476,7 @@ export default function Overview({
               href="/dashboard?view=analytics"
               className="flex flex-col items-center justify-center p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2"></span>
+              <span className="text-3xl mb-2">📊</span>
               <span className="text-sm font-medium text-gray-700 text-center">View Analytics</span>
             </Link>
           </div>
