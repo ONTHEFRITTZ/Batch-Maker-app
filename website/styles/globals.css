@@ -36,7 +36,7 @@ body {
 
 /* Card styles with glassmorphism */
 .glass-card {
-  @apply bg-white/80 backdrop-blur-sm shadow-lg;
+  @apply bg-white/90 backdrop-blur-sm shadow-lg;
 }
 
 /* Button styles */

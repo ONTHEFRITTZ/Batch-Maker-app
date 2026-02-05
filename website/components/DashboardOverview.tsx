@@ -163,7 +163,7 @@ export default function Overview({
           <div className="text-xs text-blue-600">View workflows →</div>
         </Link>
 
-        <Link href="/dashboard?view=analytics" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-green-500 hover:shadow-md transition-shadow">
+        <Link href="/dashboard?view=analytics"  className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-green-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Completed Today</h3>
             <span className="text-2xl"></span>
