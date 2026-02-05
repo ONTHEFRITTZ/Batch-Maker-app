@@ -157,7 +157,7 @@ export default function Overview({
         <Link href="/dashboard?view=workflows" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-blue-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Active Batches</h3>
-            <span className="text-2xl">🔨</span>
+            <span className="text-2xl"></span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{activeBatches.length}</div>
           <div className="text-xs text-blue-600">View workflows →</div>
@@ -166,7 +166,7 @@ export default function Overview({
         <Link href="/dashboard?view=analytics" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-green-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Completed Today</h3>
-            <span className="text-2xl">✅</span>
+            <span className="text-2xl"></span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{completedToday.length}</div>
           <div className="text-xs text-green-600">View analytics →</div>
@@ -175,7 +175,7 @@ export default function Overview({
         <Link href="/dashboard?view=calendar" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-purple-500 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-medium text-gray-600">Scheduled Today</h3>
-            <span className="text-2xl">📅</span>
+            <span className="text-2xl"></span>
           </div>
           <div className="text-3xl font-bold text-gray-900 mb-1">{scheduledToday.length}</div>
           <div className="text-xs text-purple-600">View calendar →</div>
@@ -185,7 +185,7 @@ export default function Overview({
           <Link href="/dashboard?view=schedule" className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-orange-500 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Team Online</h3>
-              <span className="text-2xl">👥</span>
+              <span className="text-2xl"></span>
             </div>
             <div className="text-3xl font-bold text-gray-900 mb-1">
               {teamMembersOnline.length}/{networkMembers.length}
@@ -208,7 +208,7 @@ export default function Overview({
       {(lowStockItems.length > 0 || urgentShoppingItems.length > 0 || activeBatches.some(b => b.active_timers?.length > 0)) && (
         <div className="glass-card rounded-xl p-6 shadow-sm border-l-4 border-red-500 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <span className="text-xl">⚠️</span>
+            <span className="text-xl"></span>
             Alerts & Notifications
           </h3>
           <div className="space-y-2">
@@ -267,7 +267,7 @@ export default function Overview({
               href="/workflows/create"
               className="flex flex-col items-center justify-center p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2">📋</span>
+              <span className="text-3xl mb-2"></span>
               <span className="text-sm font-medium text-gray-700 text-center">New Workflow</span>
             </Link>
             
@@ -275,7 +275,7 @@ export default function Overview({
               href="/dashboard?view=calendar"
               className="flex flex-col items-center justify-center p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2">📅</span>
+              <span className="text-3xl mb-2"></span>
               <span className="text-sm font-medium text-gray-700 text-center">Schedule Batch</span>
             </Link>
 
@@ -283,7 +283,7 @@ export default function Overview({
               href="/dashboard?view=inventory"
               className="flex flex-col items-center justify-center p-4 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2">📦</span>
+              <span className="text-3xl mb-2"></span>
               <span className="text-sm font-medium text-gray-700 text-center">Check Inventory</span>
             </Link>
 
@@ -293,7 +293,7 @@ export default function Overview({
                   href="/dashboard?view=schedule"
                   className="flex flex-col items-center justify-center p-4 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors"
                 >
-                  <span className="text-3xl mb-2">👥</span>
+                  <span className="text-3xl mb-2"></span>
                   <span className="text-sm font-medium text-gray-700 text-center">Manage Team</span>
                 </Link>
 
@@ -301,7 +301,7 @@ export default function Overview({
                   href="/settings"
                   className="flex flex-col items-center justify-center p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <span className="text-3xl mb-2">⚙️</span>
+                  <span className="text-3xl mb-2"></span>
                   <span className="text-sm font-medium text-gray-700 text-center">Team Settings</span>
                 </Link>
               </>
@@ -311,7 +311,7 @@ export default function Overview({
               href="/dashboard?view=analytics"
               className="flex flex-col items-center justify-center p-4 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
             >
-              <span className="text-3xl mb-2">📊</span>
+              <span className="text-3xl mb-2"></span>
               <span className="text-sm font-medium text-gray-700 text-center">View Analytics</span>
             </Link>
           </div>
