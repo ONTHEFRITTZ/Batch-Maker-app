@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '../lib/supabase';
+import { getSupabaseClient } from '../lib/supabase';
 import Link from 'next/link';
 import Overview from '../components/DashboardOverview';
 import Workflows from '../components/DashboardWorkflows';
@@ -22,6 +22,8 @@ import type {
   ShoppingListItem,
   ScheduledBatch
 } from '../lib/dashboard-types';
+
+const supabase = getSupabaseClient();
 
 export default function EnhancedDashboard() {
   const router = useRouter();
@@ -190,14 +192,14 @@ export default function EnhancedDashboard() {
 
     const isPremium = profileData?.role === 'premium' || profileData?.role === 'admin';
     if (isPremium) {
-      // Fetch network members WITHOUT the broken join
-      const { data: membersData } = await supabase
+      // Try alternative query - fetch separately if join fails
+      const { data: membersData, error: membersError } = await supabase
         .from('network_members')
         .select('*')
         .eq('owner_id', userId);
 
-      if (membersData) {
-        // Fetch profiles separately
+      if (membersData && !membersError) {
+        // Fetch profiles separately and merge
         const userIds = membersData.map(m => m.user_id).filter(Boolean);
         if (userIds.length > 0) {
           const { data: profilesData } = await supabase
@@ -211,13 +213,14 @@ export default function EnhancedDashboard() {
             profiles: profilesData?.find(p => p.id === member.user_id)
           }));
           
-          setNetworkMembers(membersWithProfiles);
+          setNetworkMembers(membersWithProfiles || []);
         } else {
-          setNetworkMembers(membersData);
+          setNetworkMembers(membersData || []);
         }
       }
     }
   }
+
   async function fetchWorkflows(userId: string) {
     let query = supabase
       .from('workflows')
