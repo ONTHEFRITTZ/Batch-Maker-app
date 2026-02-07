@@ -89,7 +89,7 @@ export default function Overview({
           .select('*')
           .eq('user_id', user.id)
           .eq('location_id', location.id)
-          .gte('timestamp', last30Days.toISOString());
+          .gte('created_at', last30Days.toISOString());
 
         // Fetch inventory for this location
         const { data: inventory } = await supabase

@@ -1,10 +1,14 @@
 /**
  * Supabase Edge Function: parse-recipe
  * 
- * This function runs on Supabase's servers (not in your app).
- * It keeps your Anthropic API key secret and handles all Claude calls.
+ * Production version with:
+ * - JWT authentication
+ * - Rate limiting (5/hour, 15/day)
+ * - Parse logging for analytics
+ * - Proper error handling
+ * - Returns workflow-ready structure
  * 
- * Deploy this to: supabase/functions/parse-recipe/index.ts
+ * Deploy to: supabase/functions/parse-recipe/index.ts
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -14,7 +18,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-haiku-4-5-20251001';
-const MAX_TOKENS = 2000;
+const MAX_TOKENS = 4096;
 
 // Rate limits
 const LIMIT_PER_HOUR = 5;
@@ -28,9 +32,9 @@ Your ONLY job is to take a raw recipe (in any format — typed out, copied from 
 
 RULES:
 1. Return ONLY valid JSON. No markdown. No code blocks. No explanation. Just the raw JSON object.
-2. Every ingredient MUST have a name, amount (number), and unit (string).
-3. If an amount is given as a fraction like "1/2", convert it to a decimal: 0.5.
-4. If no amount is given for an ingredient, use 0 and set unit to "unknown".
+2. Every ingredient MUST have a name, amount (as STRING to support fractions), and unit.
+3. Keep fractions as strings: "1/2", "1/4", "2 1/2" etc.
+4. If no amount is given for an ingredient, use "0" and set unit to "unknown".
 5. Steps must be in the correct order (order field is 1-based).
 6. If a step mentions a temperature, extract it into the temperature and temperature_unit fields.
 7. If a step mentions a time/duration, extract it into duration_minutes. Convert hours to minutes.
@@ -46,7 +50,7 @@ JSON STRUCTURE (return exactly this shape):
   "recipeName": "string",
   "description": "string (1-2 sentence summary)",
   "ingredients": [
-    { "name": "string", "amount": number, "unit": "string", "estimated_cost": 0 }
+    { "name": "string", "amount": "string", "unit": "string", "estimated_cost": 0 }
   ],
   "steps": [
     {
@@ -73,57 +77,70 @@ const corsHeaders = {
 // ─── RATE LIMITING ───────────────────────────────────────────────────────────
 
 /**
- * Check rate limits using Supabase database instead of AsyncStorage.
- * This is more secure and works across all user devices.
+ * Check rate limits using Supabase database.
+ * More secure than client-side storage and works across devices.
  */
 async function checkRateLimit(supabase: any, userId: string): Promise<string | null> {
   const now = new Date();
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
   const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  // Count parses in the last hour
-  const { count: hourCount, error: hourError } = await supabase
-    .from('recipe_parse_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', oneHourAgo.toISOString());
+  try {
+    // Count parses in the last hour
+    const { count: hourCount, error: hourError } = await supabase
+      .from('recipe_parse_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', oneHourAgo.toISOString());
 
-  if (hourError) {
-    console.error('Error checking hourly rate limit:', hourError);
-    // Don't block the user if we can't check - fail open
+    if (hourError) {
+      console.error('Error checking hourly rate limit:', hourError);
+      // Fail open - don't block user if we can't check
+      return null;
+    }
+
+    if (hourCount && hourCount >= LIMIT_PER_HOUR) {
+      return `You've parsed ${LIMIT_PER_HOUR} recipes in the last hour. Please wait a bit before trying again.`;
+    }
+
+    // Count parses in the last day
+    const { count: dayCount, error: dayError } = await supabase
+      .from('recipe_parse_logs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', oneDayAgo.toISOString());
+
+    if (dayError) {
+      console.error('Error checking daily rate limit:', dayError);
+      return null;
+    }
+
+    if (dayCount && dayCount >= LIMIT_PER_DAY) {
+      return `You've reached the daily limit of ${LIMIT_PER_DAY} recipe parses. Try again tomorrow.`;
+    }
+
+    return null; // All good
+  } catch (error) {
+    console.error('Rate limit check failed:', error);
+    return null; // Fail open
   }
-
-  if (hourCount && hourCount >= LIMIT_PER_HOUR) {
-    return `You've parsed ${LIMIT_PER_HOUR} recipes in the last hour. Please wait a bit before trying again.`;
-  }
-
-  // Count parses in the last day
-  const { count: dayCount, error: dayError } = await supabase
-    .from('recipe_parse_logs')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', oneDayAgo.toISOString());
-
-  if (dayError) {
-    console.error('Error checking daily rate limit:', dayError);
-  }
-
-  if (dayCount && dayCount >= LIMIT_PER_DAY) {
-    return `You've reached the daily limit of ${LIMIT_PER_DAY} recipe parses. Try again tomorrow.`;
-  }
-
-  return null; // All good
 }
 
 /**
- * Record a parse attempt in the database
+ * Record a parse attempt in the database for analytics and rate limiting
  */
-async function recordParse(supabase: any, userId: string, success: boolean): Promise<void> {
-  await supabase.from('recipe_parse_logs').insert({
-    user_id: userId,
-    success: success,
-    created_at: new Date().toISOString(),
-  });
+async function recordParse(supabase: any, userId: string, success: boolean, errorCode?: string): Promise<void> {
+  try {
+    await supabase.from('recipe_parse_logs').insert({
+      user_id: userId,
+      success: success,
+      error_code: errorCode || null,
+      created_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Failed to record parse:', error);
+    // Don't throw - logging failure shouldn't break the function
+  }
 }
 
 // ─── MAIN HANDLER ────────────────────────────────────────────────────────────
@@ -135,40 +152,34 @@ serve(async (req) => {
   }
 
   try {
-    // ── Get the API key from environment (set in Supabase dashboard)
+    console.log('🔍 Parse Recipe Text - Production');
+
+    // ── Get environment variables
     const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
+    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
+
     if (!anthropicApiKey) {
-      throw new Error('ANTHROPIC_API_KEY not configured in Supabase');
-    }
-
-    // ── Get the Supabase client (for rate limiting)
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // ── Parse request body
-    const { recipeText } = await req.json();
-
-    if (!recipeText || recipeText.trim().length === 0) {
+      console.error('❌ Missing ANTHROPIC_API_KEY');
       return new Response(
         JSON.stringify({
-          error: 'PARSE_FAILURE',
-          message: 'No recipe text provided.',
+          error: 'CONFIG_ERROR',
+          message: 'Server configuration error',
         }),
         {
-          status: 400,
+          status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         }
       );
     }
 
-    // ── Get authenticated user
+    // ── Verify authentication
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(
         JSON.stringify({
           error: 'UNAUTHORIZED',
-          message: 'Missing authorization header',
+          message: 'Authentication required',
         }),
         {
           status: 401,
@@ -177,10 +188,18 @@ serve(async (req) => {
       );
     }
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    // ✅ IMPORTANT: Use ANON KEY with Authorization header (not Service Role Key)
+    // This allows RLS policies to work correctly
+    const supabase = createClient(supabaseUrl!, supabaseAnonKey!, {
+      global: {
+        headers: { Authorization: authHeader },
+      },
+    });
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.error('❌ Auth error:', authError);
       return new Response(
         JSON.stringify({
           error: 'UNAUTHORIZED',
@@ -193,9 +212,31 @@ serve(async (req) => {
       );
     }
 
+    console.log('✅ User authenticated:', user.id);
+
+    // ── Parse request body
+    const { recipeText } = await req.json();
+
+    if (!recipeText || recipeText.trim().length === 0) {
+      await recordParse(supabase, user.id, false, 'MISSING_TEXT');
+      return new Response(
+        JSON.stringify({
+          error: 'MISSING_TEXT',
+          message: 'No recipe text provided.',
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    console.log('📝 Recipe text length:', recipeText.length, 'characters');
+
     // ── Check rate limit
     const rateLimitError = await checkRateLimit(supabase, user.id);
     if (rateLimitError) {
+      await recordParse(supabase, user.id, false, 'RATE_LIMITED');
       return new Response(
         JSON.stringify({
           error: 'RATE_LIMITED',
@@ -209,6 +250,8 @@ serve(async (req) => {
     }
 
     // ── Call Claude API
+    console.log('🤖 Calling Claude API...');
+    
     const claudeResponse = await fetch(ANTHROPIC_API_URL, {
       method: 'POST',
       headers: {
@@ -219,6 +262,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: MODEL,
         max_tokens: MAX_TOKENS,
+        temperature: 0.3,
         system: SYSTEM_PROMPT,
         messages: [
           {
@@ -231,15 +275,15 @@ serve(async (req) => {
 
     if (!claudeResponse.ok) {
       const errorBody = await claudeResponse.text();
-      console.error('Claude API error:', errorBody);
+      console.error('❌ Claude API error:', errorBody);
       
-      // Record failed attempt
-      await recordParse(supabase, user.id, false);
+      await recordParse(supabase, user.id, false, 'API_FAILURE');
 
       return new Response(
         JSON.stringify({
           error: 'API_FAILURE',
           message: `AI service returned error: ${claudeResponse.status}`,
+          details: errorBody.substring(0, 200),
         }),
         {
           status: 502,
@@ -252,7 +296,8 @@ serve(async (req) => {
     const responseText = claudeData?.content?.[0]?.text;
 
     if (!responseText) {
-      await recordParse(supabase, user.id, false);
+      console.error('❌ Empty response from Claude');
+      await recordParse(supabase, user.id, false, 'EMPTY_RESPONSE');
       return new Response(
         JSON.stringify({
           error: 'API_FAILURE',
@@ -265,14 +310,83 @@ serve(async (req) => {
       );
     }
 
+    console.log('✅ Claude response received, length:', responseText.length);
+
+    // ── Parse and transform the response
+    let parsedRecipe;
+    try {
+      // Clean up response - remove markdown code blocks if present
+      const cleanJson = responseText
+        .replace(/```json\s*/g, '')
+        .replace(/```\s*/g, '')
+        .trim();
+      
+      parsedRecipe = JSON.parse(cleanJson);
+
+      // Check if Claude identified it as not a recipe
+      if (parsedRecipe.error === 'not_a_recipe') {
+        await recordParse(supabase, user.id, false, 'NOT_A_RECIPE');
+        return new Response(
+          JSON.stringify({
+            error: 'NOT_A_RECIPE',
+            message: parsedRecipe.message || 'This does not appear to be a recipe',
+          }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          }
+        );
+      }
+    } catch (parseError: any) {
+      console.error('❌ JSON parse error:', parseError.message);
+      await recordParse(supabase, user.id, false, 'PARSE_ERROR');
+      return new Response(
+        JSON.stringify({
+          error: 'PARSE_ERROR',
+          message: 'Failed to parse AI response',
+          rawResponse: responseText.substring(0, 500),
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    // ── Transform to workflow format
+    const workflow = {
+      name: parsedRecipe.recipeName || 'New Recipe',
+      description: parsedRecipe.description || '',
+      servings: parsedRecipe.servings || null,
+      total_time_minutes: parsedRecipe.totalEstimatedMinutes || 0,
+      ingredients: (parsedRecipe.ingredients || []).map((ing: any) => ({
+        name: ing.name || 'Unknown',
+        amount: String(ing.amount || '0'),
+        unit: ing.unit || '',
+        estimated_cost: 0,
+      })),
+      steps: (parsedRecipe.steps || []).map((step: any) => ({
+        order: step.order || 0,
+        title: step.title || 'Step',
+        description: step.description || '',
+        duration_minutes: step.duration_minutes || 0,
+        temperature: step.temperature || null,
+        temperature_unit: step.temperature_unit || null,
+        notes: step.notes || null,
+      })),
+    };
+
+    console.log('✅ Workflow created:', workflow.name);
+
     // ── Record successful parse
     await recordParse(supabase, user.id, true);
 
-    // ── Return the raw Claude response (client will parse it)
+    // ── Return workflow structure
     return new Response(
       JSON.stringify({
         success: true,
-        responseText: responseText,
+        workflow: workflow,
+        user_id: user.id,
       }),
       {
         status: 200,
@@ -281,7 +395,7 @@ serve(async (req) => {
     );
 
   } catch (error: any) {
-    console.error('Edge function error:', error);
+    console.error('💥 Edge function error:', error);
     return new Response(
       JSON.stringify({
         error: 'UNKNOWN',

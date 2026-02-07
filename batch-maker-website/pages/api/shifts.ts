@@ -3,7 +3,9 @@
 // Backend routes for shift scheduling
 // ============================================
 
-import { supabase } from '../../lib/supabase';
+import { getSupabaseClient } from '../../lib/supabase';
+
+const supabase = getSupabaseClient();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -52,7 +54,7 @@ export const createShift = wrapHandler(async (req: any, res: any) => {
 
   // Verify the assigned user is in the owner's network
   const { data: member } = await supabase
-    .from('network_members')
+    .from('networks')
     .select('*, profiles!inner(device_name, email)')
     .eq('owner_id', user.id)
     .eq('user_id', assigned_to)
@@ -142,7 +144,7 @@ export const updateShift = wrapHandler(async (req: any, res: any) => {
     updates.assigned_to = assigned_to;
     // Re-resolve name
     const { data: member } = await supabase
-      .from('network_members')
+      .from('networks')
       .select('*, profiles!inner(device_name, email)')
       .eq('owner_id', user.id)
       .eq('user_id', assigned_to)

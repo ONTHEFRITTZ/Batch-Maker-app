@@ -1,17 +1,20 @@
 /**
- * aiRecipeParser.ts (Web Version)
+ * aiRecipeParser.ts (Web Version) - COMPLETE VERSION WITH SAVE FUNCTIONS
+ * 
+ * Location: batch-maker-website/lib/aiRecipeParser.ts
  */
 
 import { getSupabaseClient } from '../lib/supabase';
 
 const supabase = getSupabaseClient();
 
-
-// ─── TYPES ───────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// TYPE DEFINITIONS
+// ═══════════════════════════════════════════════════════════════════════════
 
 export interface ParsedIngredient {
   name: string;
-  amount: number;
+  amount: string; // Changed to string to support fractions
   unit: string;
   estimated_cost?: number;
 }
@@ -41,6 +44,8 @@ export type ParserErrorCode =
   | 'API_FAILURE'
   | 'PARSE_FAILURE'
   | 'UNAUTHORIZED'
+  | 'NOT_A_RECIPE'
+  | 'DATABASE_ERROR'
   | 'UNKNOWN';
 
 export interface ParserError {
@@ -53,7 +58,16 @@ export type ParserResult =
   | { success: true; data: ParsedRecipe }
   | { success: false; error: ParserError };
 
-// ─── CONNECTIVITY CHECK ──────────────────────────────────────────────────────
+export interface SaveRecipeResult {
+  success: boolean;
+  workflowId?: string;
+  error?: ParserErrorCode;
+  message?: string;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONNECTIVITY CHECK
+// ═══════════════════════════════════════════════════════════════════════════
 
 async function hasInternet(): Promise<boolean> {
   try {
@@ -75,10 +89,18 @@ async function hasInternet(): Promise<boolean> {
   }
 }
 
-// ─── EDGE FUNCTION CALL ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// EDGE FUNCTION CALLS
+// ═══════════════════════════════════════════════════════════════════════════
 
-async function callEdgeFunction(recipeText: string): Promise<string> {
+async function callParseTextEdgeFunction(recipeText: string): Promise<any> {
   const { data: { session } } = await supabase.auth.getSession();
+  
+  console.log('🔍 Session check:', {
+    hasSession: !!session,
+    user: session?.user?.email,
+    hasToken: !!session?.access_token
+  });
   
   if (!session) {
     throw new Error('Not authenticated. Please sign in first.');
@@ -101,69 +123,77 @@ async function callEdgeFunction(recipeText: string): Promise<string> {
     throw err;
   }
 
-  if (!data.responseText) {
-    throw new Error('Empty response from server');
-  }
-
-  return data.responseText;
+  return data;
 }
 
-// ─── RESPONSE PARSING ────────────────────────────────────────────────────────
-
-function parseClaudeResponse(rawText: string): ParsedRecipe {
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.slice(3);
-  }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
-
-  const parsed = JSON.parse(cleaned);
-
-  if (parsed.error === 'not_a_recipe') {
-    throw new Error(parsed.message || 'The text does not appear to be a recipe.');
+async function callParseUrlEdgeFunction(url: string): Promise<any> {
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  console.log('🔍 URL Parser - Session check:', {
+    hasSession: !!session,
+    user: session?.user?.email,
+    hasToken: !!session?.access_token,
+    tokenLength: session?.access_token?.length
+  });
+  
+  if (!session) {
+    console.error('❌ No session found - user is not logged in');
+    throw new Error('Not authenticated. Please sign in first.');
   }
 
-  if (!parsed.recipeName || !Array.isArray(parsed.ingredients) || !Array.isArray(parsed.steps)) {
-    throw new Error('Response is missing required fields (recipeName, ingredients, or steps).');
+  if (!session.access_token) {
+    console.error('❌ Session exists but no access token');
+    throw new Error('Invalid session. Please sign out and sign in again.');
   }
 
-  const ingredients: ParsedIngredient[] = parsed.ingredients.map((ing: any) => ({
-    name: String(ing.name || 'Unknown ingredient'),
-    amount: Number(ing.amount) || 0,
-    unit: String(ing.unit || 'unknown'),
-    estimated_cost: 0,
-  }));
+  console.log('✅ Sending request with auth token');
 
-  const steps: ParsedStep[] = parsed.steps.map((step: any, index: number) => ({
-    order: Number(step.order) || index + 1,
-    title: String(step.title || `Step ${index + 1}`),
-    description: String(step.description || ''),
-    duration_minutes: Number(step.duration_minutes) || 0,
-    temperature: step.temperature != null ? Number(step.temperature) : undefined,
-    temperature_unit: step.temperature_unit === 'C' || step.temperature_unit === 'F'
-      ? step.temperature_unit
-      : undefined,
-    notes: step.notes ? String(step.notes) : undefined,
-  }));
+  const { data, error } = await supabase.functions.invoke('parse-recipe-url', {
+    body: { url },
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
+  });
 
-  steps.sort((a, b) => a.order - b.order);
+  if (error) {
+    console.error('❌ Edge function error:', error);
+    throw new Error(error.message || 'Failed to fetch recipe from URL');
+  }
+
+  if (data.error) {
+    const err = new Error(data.message || 'Unknown error from server');
+    (err as any).code = data.error;
+    throw err;
+  }
+
+  return data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RESPONSE PARSING
+// ═══════════════════════════════════════════════════════════════════════════
+
+function parseWorkflowResponse(data: any): ParsedRecipe {
+  // The FINAL Edge Function returns { success: true, workflow: {...}, user_id: "..." }
+  if (!data.workflow) {
+    throw new Error('Invalid response format from server');
+  }
+
+  const workflow = data.workflow;
 
   return {
-    recipeName: String(parsed.recipeName),
-    description: String(parsed.description || ''),
-    ingredients,
-    steps,
-    totalEstimatedMinutes: Number(parsed.totalEstimatedMinutes) || 0,
-    servings: parsed.servings ? String(parsed.servings) : undefined,
+    recipeName: workflow.name,
+    description: workflow.description || '',
+    ingredients: workflow.ingredients || [],
+    steps: workflow.steps || [],
+    totalEstimatedMinutes: workflow.total_time_minutes || 0,
+    servings: workflow.servings || undefined,
   };
 }
 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// PARSE RECIPE FROM TEXT
+// ═══════════════════════════════════════════════════════════════════════════
 
 export async function parseRecipe(
   recipeText: string,
@@ -194,8 +224,8 @@ export async function parseRecipe(
 
   const attemptParse = async (): Promise<ParserResult> => {
     try {
-      const rawResponse = await callEdgeFunction(recipeText);
-      const parsed = parseClaudeResponse(rawResponse);
+      const data = await callParseTextEdgeFunction(recipeText);
+      const parsed = parseWorkflowResponse(data);
       return { success: true, data: parsed };
     } catch (err: any) {
       const message = err?.message || 'Something went wrong';
@@ -206,6 +236,17 @@ export async function parseRecipe(
           success: false,
           error: {
             code: 'RATE_LIMITED',
+            message: message,
+            retryable: false,
+          },
+        };
+      }
+
+      if (errorCode === 'NOT_A_RECIPE') {
+        return {
+          success: false,
+          error: {
+            code: 'NOT_A_RECIPE',
             message: message,
             retryable: false,
           },
@@ -247,7 +288,6 @@ export async function parseRecipe(
   const firstResult = await attemptParse();
   if (firstResult.success) return firstResult;
 
-  // Cast to error type since we know success is false
   const errorResult = firstResult as { success: false; error: ParserError };
   if (allowRetry && errorResult.error.retryable) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -257,7 +297,9 @@ export async function parseRecipe(
   return firstResult;
 }
 
-// ─── URL PARSER ──────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// PARSE RECIPE FROM URL
+// ═══════════════════════════════════════════════════════════════════════════
 
 export async function parseRecipeFromUrl(
   url: string,
@@ -301,38 +343,14 @@ export async function parseRecipeFromUrl(
 
   const attemptParse = async (): Promise<ParserResult> => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        throw new Error('Not authenticated. Please sign in first.');
-      }
-
-      const { data, error } = await supabase.functions.invoke('parse-recipe-url', {
-        body: { url },
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      if (error) {
-        throw new Error(error.message || 'Failed to fetch recipe from URL');
-      }
-
-      if (data.error) {
-        const err = new Error(data.message || 'Unknown error from server');
-        (err as any).code = data.error;
-        throw err;
-      }
-
-      if (!data.responseText) {
-        throw new Error('Empty response from server');
-      }
-
-      const parsed = parseClaudeResponse(data.responseText);
+      const data = await callParseUrlEdgeFunction(url);
+      const parsed = parseWorkflowResponse(data);
       return { success: true, data: parsed };
     } catch (err: any) {
       const message = err?.message || 'Something went wrong';
       const errorCode = (err as any).code;
+
+      console.error('❌ Parse error:', { message, errorCode, err });
 
       if (errorCode === 'RATE_LIMITED') {
         return {
@@ -345,12 +363,23 @@ export async function parseRecipeFromUrl(
         };
       }
 
+      if (errorCode === 'NOT_A_RECIPE') {
+        return {
+          success: false,
+          error: {
+            code: 'NOT_A_RECIPE',
+            message: message,
+            retryable: false,
+          },
+        };
+      }
+
       if (errorCode === 'UNAUTHORIZED' || message.includes('Not authenticated')) {
         return {
           success: false,
           error: {
             code: 'UNAUTHORIZED',
-            message: 'You must be signed in to parse recipes.',
+            message: 'You must be signed in to parse recipes. Please log in and try again.',
             retryable: false,
           },
         };
@@ -378,7 +407,6 @@ export async function parseRecipeFromUrl(
   const firstResult = await attemptParse();
   if (firstResult.success) return firstResult;
 
-  // Cast to error type since we know success is false
   const errorResult = firstResult as { success: false; error: ParserError };
   if (allowRetry && errorResult.error.retryable) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -388,7 +416,166 @@ export async function parseRecipeFromUrl(
   return firstResult;
 }
 
-// ─── HELPER FUNCTIONS ────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+// SAVE RECIPE FROM TEXT
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function saveRecipeFromText(
+  recipeText: string,
+  locationId?: string
+): Promise<SaveRecipeResult> {
+  // Step 1: Parse the recipe
+  const parseResult = await parseRecipe(recipeText);
+  
+  if (parseResult.success === false) {
+    return {
+      success: false,
+      error: parseResult.error.code,
+      message: parseResult.error.message,
+    };
+  }
+
+  // Step 2: Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return {
+      success: false,
+      error: 'UNAUTHORIZED',
+      message: 'You must be signed in to save recipes.',
+    };
+  }
+
+  // Step 3: Generate workflow ID
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 9);
+  const workflowId = `wf-${timestamp}-${random}`;
+
+  // Step 4: Insert into workflows table
+  try {
+    const { error: insertError } = await supabase
+      .from('workflows')
+      .insert({
+        id: workflowId,
+        user_id: user.id,
+        location_id: locationId || null,
+        name: parseResult.data.recipeName,
+        description: parseResult.data.description,
+        servings: parseResult.data.servings || null,
+        total_time_minutes: parseResult.data.totalEstimatedMinutes,
+        ingredients: parseResult.data.ingredients,
+        steps: parseResult.data.steps,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (insertError) {
+      console.error('❌ Insert error:', insertError);
+      return {
+        success: false,
+        error: 'DATABASE_ERROR',
+        message: `Failed to save recipe: ${insertError.message}`,
+      };
+    }
+
+    return {
+      success: true,
+      workflowId,
+      message: `Successfully imported "${parseResult.data.recipeName}"`,
+    };
+
+  } catch (err: any) {
+    console.error('❌ Save error:', err);
+    return {
+      success: false,
+      error: 'UNKNOWN',
+      message: err?.message || 'Failed to save recipe',
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SAVE RECIPE FROM URL
+// ═══════════════════════════════════════════════════════════════════════════
+
+export async function saveRecipeFromUrl(
+  url: string,
+  locationId?: string
+): Promise<SaveRecipeResult> {
+  // Step 1: Parse the recipe
+  const parseResult = await parseRecipeFromUrl(url);
+  
+ if (parseResult.success === false) {
+    return {
+      success: false,
+      error: parseResult.error.code,
+      message: parseResult.error.message,
+    };
+  }
+
+  // Step 2: Get current user
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return {
+      success: false,
+      error: 'UNAUTHORIZED',
+      message: 'You must be signed in to save recipes.',
+    };
+  }
+
+  // Step 3: Generate workflow ID
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 9);
+  const workflowId = `wf-${timestamp}-${random}`;
+
+  // Step 4: Insert into workflows table
+  try {
+    const { error: insertError } = await supabase
+      .from('workflows')
+      .insert({
+        id: workflowId,
+        user_id: user.id,
+        location_id: locationId || null,
+        name: parseResult.data.recipeName,
+        description: parseResult.data.description,
+        servings: parseResult.data.servings || null,
+        total_time_minutes: parseResult.data.totalEstimatedMinutes,
+        ingredients: parseResult.data.ingredients,
+        steps: parseResult.data.steps,
+        source_url: url, // Save the source URL
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+    if (insertError) {
+      console.error('❌ Insert error:', insertError);
+      return {
+        success: false,
+        error: 'DATABASE_ERROR',
+        message: `Failed to save recipe: ${insertError.message}`,
+      };
+    }
+
+    return {
+      success: true,
+      workflowId,
+      message: `Successfully imported "${parseResult.data.recipeName}"`,
+    };
+
+  } catch (err: any) {
+    console.error('❌ Save error:', err);
+    return {
+      success: false,
+      error: 'UNKNOWN',
+      message: err?.message || 'Failed to save recipe',
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LEGACY HELPER FUNCTIONS (kept for backwards compatibility)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export function toWorkflowInsert(parsed: ParsedRecipe, userId: string, locationId?: string) {
   return {

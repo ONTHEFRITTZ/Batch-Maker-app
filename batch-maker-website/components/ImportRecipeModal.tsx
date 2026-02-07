@@ -1,323 +1,384 @@
+/**
+* Location: batch-maker-website/components/ImportRecipeModal.tsx
+ */
+
 import { useState } from 'react';
-import { parseRecipe, parseRecipeFromUrl, toWorkflowInsert, toBatchTemplateInsert, type ParsedRecipe } from '../lib/aiRecipeParser';
-import { getSupabaseClient } from '../lib/supabase';
-
-const supabase = getSupabaseClient();
-
+import { saveRecipeFromUrl, saveRecipeFromText } from '../lib/aiRecipeParser';
+import type { SaveRecipeResult } from '../lib/aiRecipeParser';
 
 interface ImportRecipeModalProps {
   isOpen: boolean;
   onClose: () => void;
   userId: string;
   locationId?: string;
-  onSuccess?: () => void;
+  onSuccess?: (workflowId: string) => void;
+  onWorkflowCreated?: () => void; // NEW: Callback to refetch workflows list
 }
 
-export default function ImportRecipeModal({ isOpen, onClose, userId, locationId, onSuccess }: ImportRecipeModalProps) {
-  const [mode, setMode] = useState<'text' | 'url'>('text');
-  const [recipeText, setRecipeText] = useState('');
-  const [recipeUrl, setRecipeUrl] = useState('');
+export default function ImportRecipeModal({
+  isOpen,
+  onClose,
+  userId,
+  locationId,
+  onSuccess,
+  onWorkflowCreated, // NEW
+}: ImportRecipeModalProps) {
+  const [activeTab, setActiveTab] = useState<'url' | 'text'>('url');
+  const [url, setUrl] = useState('');
+  const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [parsedRecipe, setParsedRecipe] = useState<ParsedRecipe | null>(null);
-
-  const handleParse = async () => {
-    setLoading(true);
-    setError(null);
-    setParsedRecipe(null);
-
-    try {
-      let result;
-      
-      if (mode === 'url') {
-        result = await parseRecipeFromUrl(recipeUrl);
-      } else {
-        result = await parseRecipe(recipeText);
-      }
-
-      if (result.success) {
-        setParsedRecipe(result.data);
-      } else {
-        setError(result.error.message);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to parse recipe');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleImport = async () => {
-    if (!parsedRecipe) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // 1. Create the workflow
-      const workflowData = toWorkflowInsert(parsedRecipe, userId, locationId);
-      const { data: workflow, error: workflowError } = await supabase
-        .from('workflows')
-        .insert(workflowData)
-        .select()
-        .single();
-
-      if (workflowError) throw workflowError;
-
-      // 2. Create the batch template
-      const templateData = toBatchTemplateInsert(parsedRecipe, userId, workflow.id);
-      const { error: templateError } = await supabase
-        .from('batch_templates')
-        .insert(templateData);
-
-      if (templateError) throw templateError;
-
-      // Success!
-      alert(`Successfully imported "${parsedRecipe.recipeName}"!`);
-      
-      // Reset form
-      setRecipeText('');
-      setRecipeUrl('');
-      setParsedRecipe(null);
-      
-      // Call success callback
-      if (onSuccess) onSuccess();
-      
-      // Close modal
-      onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to import recipe');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleReset = () => {
-    setParsedRecipe(null);
-    setError(null);
-  };
+  const [result, setResult] = useState<SaveRecipeResult | null>(null);
 
   if (!isOpen) return null;
 
+  const handleUrlImport = async () => {
+    if (!url.trim()) {
+      setResult({ 
+        success: false, 
+        error: 'PARSE_FAILURE',
+        message: 'Please enter a URL' 
+      });
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const res = await saveRecipeFromUrl(url, locationId);
+      setResult(res);
+
+      if (res.success && res.workflowId) {
+        setUrl(''); // Clear input on success
+        
+        // Call both callbacks
+        if (onSuccess) {
+          onSuccess(res.workflowId);
+        }
+        if (onWorkflowCreated) {
+          onWorkflowCreated(); // NEW: Trigger refetch
+        }
+        
+        // Auto-close after 2 seconds on success
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      }
+    } catch (err: any) {
+      setResult({
+        success: false,
+        error: 'UNKNOWN',
+        message: err.message || 'Failed to import recipe',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleTextImport = async () => {
+    if (!text.trim()) {
+      setResult({ 
+        success: false, 
+        error: 'PARSE_FAILURE',
+        message: 'Please paste a recipe' 
+      });
+      return;
+    }
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const res = await saveRecipeFromText(text, locationId);
+      setResult(res);
+
+      if (res.success && res.workflowId) {
+        setText(''); // Clear input on success
+        
+        // Call both callbacks
+        if (onSuccess) {
+          onSuccess(res.workflowId);
+        }
+        if (onWorkflowCreated) {
+          onWorkflowCreated(); // NEW: Trigger refetch
+        }
+        
+        // Auto-close after 2 seconds on success
+        setTimeout(() => {
+          onClose();
+        }, 2000);
+      }
+    } catch (err: any) {
+      setResult({
+        success: false,
+        error: 'UNKNOWN',
+        message: err.message || 'Failed to import recipe',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClose = () => {
+    if (loading) return; // Prevent closing while loading
+    setUrl('');
+    setText('');
+    setResult(null);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
+    <div 
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={handleClose}
+    >
       <div 
-        className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Import Recipe with AI</h2>
+        {/* Header */}
+        <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">🤖 Import Recipe with AI</h2>
           <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+            onClick={handleClose}
+            disabled={loading}
+            className="text-gray-400 hover:text-gray-600 text-2xl leading-none disabled:opacity-50"
           >
             ×
           </button>
         </div>
 
+        {/* Content */}
         <div className="p-6">
-          {!parsedRecipe ? (
-            <>
-              {/* Mode Selection */}
-              <div className="flex gap-2 mb-6">
-                <button
-                  onClick={() => setMode('text')}
-                  className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
-                    mode === 'text'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  📝 Paste Recipe Text
-                </button>
-                <button
-                  onClick={() => setMode('url')}
-                  className={`flex-1 px-4 py-3 rounded-lg font-medium transition-colors ${
-                    mode === 'url'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  🔗 Import from URL
-                </button>
-              </div>
+          {/* Tabs */}
+          <div className="flex gap-2 mb-6 border-b border-gray-200">
+            <button
+              onClick={() => setActiveTab('url')}
+              disabled={loading}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === 'url'
+                  ? 'border-b-2 border-purple-600 text-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              } disabled:opacity-50`}
+            >
+              From URL
+            </button>
+            <button
+              onClick={() => setActiveTab('text')}
+              disabled={loading}
+              className={`px-6 py-3 font-medium transition-colors ${
+                activeTab === 'text'
+                  ? 'border-b-2 border-purple-600 text-purple-600'
+                  : 'text-gray-600 hover:text-gray-900'
+              } disabled:opacity-50`}
+            >
+              From Text
+            </button>
+          </div>
 
-              {/* Input Area */}
-              {mode === 'text' ? (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Recipe Text
-                  </label>
-                  <textarea
-                    value={recipeText}
-                    onChange={(e) => setRecipeText(e.target.value)}
-                    placeholder="Paste your recipe here... Include ingredients and instructions."
-                    className="w-full h-64 p-4 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="mt-2 text-sm text-gray-500">
-                    Paste any recipe text and our AI will automatically extract ingredients, steps, and timing.
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Recipe URL
-                  </label>
-                  <input
-                    type="url"
-                    value={recipeUrl}
-                    onChange={(e) => setRecipeUrl(e.target.value)}
-                    placeholder="https://example.com/recipe"
-                    className="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                  <p className="mt-2 text-sm text-gray-500">
-                    Enter a URL to a recipe page and we'll extract the recipe for you.
-                  </p>
-                </div>
-              )}
-
-              {/* Error Display */}
-              {error && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-start gap-3">
-                    <span className="text-red-500 text-xl">⚠️</span>
-                    <div className="flex-1">
-                      <h4 className="font-semibold text-red-900 mb-1">Error</h4>
-                      <p className="text-sm text-red-700">{error}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleParse}
-                  disabled={loading || (mode === 'text' ? !recipeText.trim() : !recipeUrl.trim())}
-                  className="flex-1 px-6 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      Parsing...
-                    </span>
-                  ) : (
-                    '🤖 Parse Recipe with AI'
-                  )}
-                </button>
-                <button
-                  onClick={onClose}
-                  className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Preview Parsed Recipe */}
-              <div className="mb-6">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
-                  <div className="flex items-center gap-2 text-green-700">
-                    <span className="text-2xl">✓</span>
-                    <span className="font-semibold">Recipe parsed successfully!</span>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  {/* Recipe Header */}
-                  <div>
-                    <h3 className="text-2xl font-bold text-gray-900 mb-2">{parsedRecipe.recipeName}</h3>
-                    {parsedRecipe.description && (
-                      <p className="text-gray-600">{parsedRecipe.description}</p>
-                    )}
-                    {parsedRecipe.servings && (
-                      <p className="text-sm text-gray-500 mt-2">Serves: {parsedRecipe.servings}</p>
-                    )}
-                    {parsedRecipe.totalEstimatedMinutes > 0 && (
-                      <p className="text-sm text-gray-500">
-                        Total Time: {parsedRecipe.totalEstimatedMinutes} minutes
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Ingredients */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-3">
-                      Ingredients ({parsedRecipe.ingredients.length})
-                    </h4>
-                    <div className="bg-gray-50 rounded-lg p-4">
-                      <ul className="space-y-2">
-                        {parsedRecipe.ingredients.map((ing, idx) => (
-                          <li key={idx} className="flex items-center gap-3 text-sm">
-                            <span className="w-6 h-6 flex items-center justify-center bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
-                              {idx + 1}
-                            </span>
-                            <span className="font-medium">{ing.amount} {ing.unit}</span>
-                            <span className="text-gray-700">{ing.name}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-
-                  {/* Steps */}
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900 mb-3">
-                      Instructions ({parsedRecipe.steps.length} steps)
-                    </h4>
-                    <div className="space-y-3">
-                      {parsedRecipe.steps.map((step, idx) => (
-                        <div key={idx} className="bg-gray-50 rounded-lg p-4">
-                          <div className="flex items-start gap-3 mb-2">
-                            <span className="w-8 h-8 flex items-center justify-center bg-purple-100 text-purple-700 rounded-full font-bold">
-                              {step.order}
-                            </span>
-                            <div className="flex-1">
-                              <h5 className="font-semibold text-gray-900">{step.title}</h5>
-                              {step.duration_minutes > 0 && (
-                                <span className="text-xs text-gray-500">⏱️ {step.duration_minutes} min</span>
-                              )}
-                              {step.temperature && (
-                                <span className="text-xs text-gray-500 ml-3">
-                                  🌡️ {step.temperature}°{step.temperature_unit || 'C'}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-sm text-gray-700 ml-11">{step.description}</p>
-                          {step.notes && (
-                            <p className="text-xs text-gray-500 italic ml-11 mt-2">Note: {step.notes}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleImport}
+          {/* URL Import */}
+          {activeTab === 'url' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700">
+                  Recipe URL
+                </label>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://example.com/chocolate-chip-cookies"
                   disabled={loading}
-                  className="flex-1 px-6 py-3 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {loading ? 'Importing...' : '✓ Import as Workflow'}
-                </button>
-                <button
-                  onClick={handleReset}
-                  disabled={loading}
-                  className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                >
-                  ← Back
-                </button>
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Paste a link to any recipe from the web. Our AI will extract the ingredients and steps automatically.
+                </p>
               </div>
-            </>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-medium text-blue-900 mb-2">✨ How it works:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>1. Paste a recipe URL from any website</li>
+                  <li>2. AI fetches and reads the page</li>
+                  <li>3. Recipe is parsed and saved to your workflows</li>
+                  <li>4. Ready to use in batches!</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleUrlImport}
+                disabled={loading || !url.trim()}
+                className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    <span>Importing recipe...</span>
+                  </>
+                ) : (
+                  <>
+                    <span></span>
+                    <span>Import Recipe</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
+
+          {/* Text Import */}
+          {activeTab === 'text' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-700">
+                  Recipe Text
+                </label>
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Paste your recipe here...
+
+Example:
+Chocolate Chip Cookies
+
+Ingredients:
+- 2 cups all-purpose flour
+- 1 cup butter, softened
+- 3/4 cup sugar
+- 1 cup chocolate chips
+- 2 eggs
+- 1 tsp vanilla extract
+- 1 tsp baking soda
+- 1/2 tsp salt
+
+Instructions:
+1. Preheat oven to 350°F
+2. Mix butter and sugar until fluffy
+3. Add eggs and vanilla
+4. Combine dry ingredients, mix into wet
+5. Fold in chocolate chips
+6. Drop onto baking sheet
+7. Bake 10-12 minutes"
+                  disabled={loading}
+                  rows={14}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm disabled:bg-gray-100"
+                />
+                <p className="text-sm text-gray-500 mt-2">
+                  Paste a recipe from anywhere - email, notes, screenshot text, or just type it in.
+                </p>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-medium text-blue-900 mb-2">✨ AI will automatically:</h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• Extract ingredients with amounts and units</li>
+                  <li>• Parse steps in the correct order</li>
+                  <li>• Calculate total time estimates</li>
+                  <li>• Format everything for batch production</li>
+                </ul>
+              </div>
+
+              <button
+                onClick={handleTextImport}
+                disabled={loading || !text.trim()}
+                className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <span className="animate-spin">⚙️</span>
+                    <span>Importing recipe...</span>
+                  </>
+                ) : (
+                  <>
+                    <span></span>
+                    <span>Import Recipe</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Result Message */}
+          {result && (
+            <div
+              className={`mt-6 p-4 rounded-lg border ${
+                result.success
+                  ? 'bg-green-50 border-green-200'
+                  : 'bg-red-50 border-red-200'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">
+                  {result.success ? '✅' : '❌'}
+                </span>
+                <div className="flex-1">
+                  <p className={`font-medium mb-1 ${
+                    result.success ? 'text-green-900' : 'text-red-900'
+                  }`}>
+                    {result.success ? 'Success!' : 'Import Failed'}
+                  </p>
+                  <p className={`text-sm ${
+                    result.success ? 'text-green-800' : 'text-red-800'
+                  }`}>
+                    {result.message}
+                  </p>
+                  {result.success && (
+                    <p className="text-xs text-green-600 mt-2">
+                      Closing automatically...
+                    </p>
+                  )}
+                  {!result.success && result.error === 'RATE_LIMITED' && (
+                    <p className="text-xs text-red-600 mt-2">
+                      You've reached your import limit. Please try again later.
+                    </p>
+                  )}
+                  {!result.success && result.error === 'UNAUTHORIZED' && (
+                    <p className="text-xs text-red-600 mt-2">
+                      Please make sure you're signed in and try again.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Example URLs */}
+          {activeTab === 'url' && !loading && (
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <h3 className="font-medium mb-3 text-gray-900">Try these examples:</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setUrl('https://www.allrecipes.com/recipe/10813/best-chocolate-chip-cookies/')}
+                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
+                >
+                  → AllRecipes - Best Chocolate Chip Cookies
+                </button>
+                <button
+                  onClick={() => setUrl('https://www.kingarthurbaking.com/recipes/cinnamon-star-bread-recipe')}
+                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
+                >
+                  → King Arthur Baking - Cinnamon Star Bread
+                </button>
+                <button
+                  onClick={() => setUrl('https://www.bonappetit.com/recipe/bas-best-chocolate-chip-cookies')}
+                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
+                >
+                  → Bon Appétit - BA's Best Chocolate Chip Cookies
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+          <button
+            onClick={handleClose}
+            disabled={loading}
+            className="w-full px-4 py-3 bg-gray-200 text-gray-700 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Please wait...' : 'Cancel'}
+          </button>
         </div>
       </div>
     </div>

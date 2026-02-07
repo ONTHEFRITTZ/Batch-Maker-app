@@ -1,78 +1,70 @@
 /**
- * aiRecipeParser.ts
+ * aiRecipeParser.ts - PRODUCTION VERSION
  * 
  * Client-side recipe parser that calls your secure Supabase Edge Function.
- * - No API keys in the app (they're server-side now!)
- * - All rate limiting handled by the server
- * - Same clean interface as before
+ * - No API keys in the app (server-side only)
+ * - All rate limiting handled by server
+ * - Proper workflow structure for database insert
  * - Automatic retry on failure
  */
 
-import { supabase } from './supabaseClient'; // Your Supabase client instance
+import { supabase } from './supabaseClient';
 import NetInfo from '@react-native-community/netinfo';
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
-/** One ingredient row — each field is editable by the user during batch execution */
 export interface ParsedIngredient {
   name: string;
-  amount: number;       // user can edit this in the UI
-  unit: string;         // e.g. "g", "ml", "cups", "tbsp"
-  estimated_cost?: number; // optional, leave 0 if unknown
+  amount: string;        // Changed to string to match database
+  unit: string;
+  estimated_cost?: number;
 }
 
-/** One step in the workflow — maps directly to a step in the `steps` JSONB array */
 export interface ParsedStep {
-  order: number;        // 1-based sequence
-  title: string;        // short name, e.g. "Preheat Oven"
-  description: string;  // detailed instructions for this step
-  duration_minutes: number; // 0 if not specified
-  temperature?: number;     // omit or null if not relevant
-  temperature_unit?: 'C' | 'F'; // Celsius or Fahrenheit
-  notes?: string;       // any extra tips or warnings
+  order: number;
+  title: string;
+  description: string;
+  duration_minutes: number;
+  temperature?: number;
+  temperature_unit?: 'C' | 'F';
+  notes?: string;
 }
 
-/** Top-level output of a successful parse */
 export interface ParsedRecipe {
   recipeName: string;
   description: string;
   ingredients: ParsedIngredient[];
   steps: ParsedStep[];
   totalEstimatedMinutes: number;
-  servings?: string; // e.g. "12 muffins", "1 loaf"
+  servings?: string;
 }
 
-/** Every possible error the parser can surface */
 export type ParserErrorCode =
   | 'NO_INTERNET'
   | 'RATE_LIMITED'
   | 'API_FAILURE'
   | 'PARSE_FAILURE'
   | 'UNAUTHORIZED'
+  | 'NOT_A_RECIPE'
   | 'UNKNOWN';
 
 export interface ParserError {
   code: ParserErrorCode;
   message: string;
-  retryable: boolean; // should the UI offer a retry button?
+  retryable: boolean;
 }
 
-/** Wraps either a success or a failure */
 export type ParserResult =
   | { success: true; data: ParsedRecipe }
   | { success: false; error: ParserError };
 
 // ─── CONNECTIVITY CHECK ──────────────────────────────────────────────────────
 
-/**
- * Returns true if we have an internet connection.
- */
 async function hasInternet(): Promise<boolean> {
   try {
     const state = await NetInfo.fetch();
     if (state.isConnected === false) return false;
 
-    // Quick ping to check real connectivity
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     await fetch('https://www.google.com', {
@@ -88,20 +80,15 @@ async function hasInternet(): Promise<boolean> {
 
 // ─── EDGE FUNCTION CALL ──────────────────────────────────────────────────────
 
-/**
- * Calls your Supabase Edge Function with the recipe text.
- * Returns the raw response string from Claude.
- */
-async function callEdgeFunction(recipeText: string): Promise<string> {
-  // Get the current session token
+async function callEdgeFunction(recipeText: string): Promise<any> {
   const { data: { session } } = await supabase.auth.getSession();
   
   if (!session) {
     throw new Error('Not authenticated. Please sign in first.');
   }
 
-  // Call your edge function
-  // Replace 'parse-recipe' with your function name if different
+  console.log('🤖 Calling parse-recipe edge function...');
+
   const { data, error } = await supabase.functions.invoke('parse-recipe', {
     body: { recipeText },
     headers: {
@@ -110,67 +97,43 @@ async function callEdgeFunction(recipeText: string): Promise<string> {
   });
 
   if (error) {
-    // Edge function returned an error
+    console.error('❌ Edge function error:', error);
     throw new Error(error.message || 'Edge function call failed');
   }
 
-  // The edge function returns { success: true, responseText: "..." }
-  // or { error: "...", message: "..." }
   if (data.error) {
-    // Server returned a structured error
     const err = new Error(data.message || 'Unknown error from server');
-    (err as any).code = data.error; // attach the error code
+    (err as any).code = data.error;
     throw err;
   }
 
-  if (!data.responseText) {
-    throw new Error('Empty response from server');
-  }
-
-  return data.responseText;
+  return data;
 }
 
 // ─── RESPONSE PARSING ────────────────────────────────────────────────────────
 
-/**
- * Takes the raw text from Claude and turns it into a ParsedRecipe.
- * Handles cases where Claude might wrap JSON in markdown code fences.
- */
-function parseClaudeResponse(rawText: string): ParsedRecipe {
-  // Strip any markdown code fences Claude might have added
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```json')) {
-    cleaned = cleaned.slice(7);
-  } else if (cleaned.startsWith('```')) {
-    cleaned = cleaned.slice(3);
-  }
-  if (cleaned.endsWith('```')) {
-    cleaned = cleaned.slice(0, -3);
-  }
-  cleaned = cleaned.trim();
-
-  const parsed = JSON.parse(cleaned);
-
-  // If Claude decided it's not a recipe, surface that
-  if (parsed.error === 'not_a_recipe') {
-    throw new Error(parsed.message || 'The text does not appear to be a recipe.');
+function parseRecipeResponse(data: any): ParsedRecipe {
+  // The edge function should return { success: true, workflow: {...} }
+  if (!data.success || !data.workflow) {
+    throw new Error('Invalid response structure from server');
   }
 
-  // Validate the minimum shape we need
-  if (!parsed.recipeName || !Array.isArray(parsed.ingredients) || !Array.isArray(parsed.steps)) {
-    throw new Error('Response is missing required fields (recipeName, ingredients, or steps).');
+  const workflow = data.workflow;
+
+  // Validate minimum required fields
+  if (!workflow.name || !Array.isArray(workflow.ingredients) || !Array.isArray(workflow.steps)) {
+    throw new Error('Response is missing required fields (name, ingredients, or steps)');
   }
 
-  // Ensure all ingredients have the right shape
-  const ingredients: ParsedIngredient[] = parsed.ingredients.map((ing: any) => ({
+  // Transform to ParsedRecipe format
+  const ingredients: ParsedIngredient[] = workflow.ingredients.map((ing: any) => ({
     name: String(ing.name || 'Unknown ingredient'),
-    amount: Number(ing.amount) || 0,
-    unit: String(ing.unit || 'unknown'),
-    estimated_cost: 0,
+    amount: String(ing.amount || '0'),
+    unit: String(ing.unit || ''),
+    estimated_cost: ing.estimated_cost || 0,
   }));
 
-  // Ensure all steps have the right shape
-  const steps: ParsedStep[] = parsed.steps.map((step: any, index: number) => ({
+  const steps: ParsedStep[] = workflow.steps.map((step: any, index: number) => ({
     order: Number(step.order) || index + 1,
     title: String(step.title || `Step ${index + 1}`),
     description: String(step.description || ''),
@@ -182,16 +145,15 @@ function parseClaudeResponse(rawText: string): ParsedRecipe {
     notes: step.notes ? String(step.notes) : undefined,
   }));
 
-  // Sort steps by order just in case
   steps.sort((a, b) => a.order - b.order);
 
   return {
-    recipeName: String(parsed.recipeName),
-    description: String(parsed.description || ''),
+    recipeName: String(workflow.name),
+    description: String(workflow.description || ''),
     ingredients,
     steps,
-    totalEstimatedMinutes: Number(parsed.totalEstimatedMinutes) || 0,
-    servings: parsed.servings ? String(parsed.servings) : undefined,
+    totalEstimatedMinutes: Number(workflow.total_time_minutes) || 0,
+    servings: workflow.servings ? String(workflow.servings) : undefined,
   };
 }
 
@@ -200,25 +162,15 @@ function parseClaudeResponse(rawText: string): ParsedRecipe {
 /**
  * Parse a recipe using Claude Haiku (via secure edge function).
  * 
- * @param recipeText - The raw recipe text (from user input, clipboard, whatever)
- * @param allowRetry - If true (default), automatically retries once on API/parse failure
- * @returns A ParserResult — either success with the parsed recipe, or failure with an error
- * 
- * Usage:
- *   const result = await parseRecipe(userInput);
- *   if (result.success) {
- *     console.log(result.data.recipeName);
- *     console.log(result.data.ingredients); // editable checklist
- *     console.log(result.data.steps);       // ready for Supabase insert
- *   } else {
- *     console.log(result.error.message);
- *   }
+ * @param recipeText - The raw recipe text
+ * @param allowRetry - If true, automatically retries once on failure
+ * @returns ParserResult with either parsed recipe or error
  */
 export async function parseRecipe(
   recipeText: string,
   allowRetry: boolean = true
 ): Promise<ParserResult> {
-  // ── Guard: empty input
+  // Guard: empty input
   if (!recipeText || recipeText.trim().length === 0) {
     return {
       success: false,
@@ -230,30 +182,32 @@ export async function parseRecipe(
     };
   }
 
-  // ── Step 1: Check internet
+  // Check internet
   const online = await hasInternet();
   if (!online) {
     return {
       success: false,
       error: {
         code: 'NO_INTERNET',
-        message: 'No internet connection. Recipe parsing requires an internet connection. Check your Wi-Fi or cellular data and try again.',
+        message: 'No internet connection. Recipe parsing requires an internet connection.',
         retryable: true,
       },
     };
   }
 
-  // ── Step 2: Call edge function + parse response (with one retry)
+  // Attempt parse
   const attemptParse = async (): Promise<ParserResult> => {
     try {
-      const rawResponse = await callEdgeFunction(recipeText);
-      const parsed = parseClaudeResponse(rawResponse);
+      const data = await callEdgeFunction(recipeText);
+      const parsed = parseRecipeResponse(data);
       return { success: true, data: parsed };
     } catch (err: any) {
       const message = err?.message || 'Something went wrong';
       const errorCode = (err as any).code;
 
-      // Map server error codes to client error codes
+      console.error('❌ Parse attempt failed:', errorCode, message);
+
+      // Map server error codes
       if (errorCode === 'RATE_LIMITED') {
         return {
           success: false,
@@ -271,6 +225,17 @@ export async function parseRecipe(
           error: {
             code: 'UNAUTHORIZED',
             message: 'You must be signed in to parse recipes.',
+            retryable: false,
+          },
+        };
+      }
+
+      if (errorCode === 'NOT_A_RECIPE') {
+        return {
+          success: false,
+          error: {
+            code: 'NOT_A_RECIPE',
+            message: message,
             retryable: false,
           },
         };
@@ -302,54 +267,116 @@ export async function parseRecipe(
   const firstResult = await attemptParse();
   if (firstResult.success) return firstResult;
 
-  // Retry once if allowed and the error is retryable
+  // Retry once if allowed and retryable
   if (allowRetry && firstResult.error.retryable) {
-    // Small delay before retry
+    console.log('🔄 Retrying parse...');
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const retryResult = await attemptParse();
-    if (retryResult.success) return retryResult;
-
     return retryResult;
   }
 
   return firstResult;
 }
 
-// ─── HELPER: Map parsed output to Supabase insert shapes ────────────────────
+// ─── HELPER: Save to Database ────────────────────────────────────────────────
 
 /**
- * Creates the object you'd pass to supabase.from('workflows').insert(...)
+ * Parse a recipe and save it directly to the database as a workflow
+ * 
+ * @param recipeText - The raw recipe text
+ * @returns Object with success status and workflow ID
+ */
+export async function parseAndSaveRecipe(recipeText: string): Promise<{
+  success: boolean;
+  workflowId?: string;
+  error?: string;
+}> {
+  try {
+    // Get session
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    if (!session) {
+      return {
+        success: false,
+        error: 'You must be signed in to save recipes'
+      };
+    }
+
+    // Parse the recipe
+    const parseResult = await parseRecipe(recipeText);
+    
+    if (!parseResult.success) {
+      return {
+        success: false,
+        error: parseResult.error.message
+      };
+    }
+
+    const parsed = parseResult.data;
+
+    // Generate workflow ID
+    const workflowId = `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Insert into database
+    const { data: workflow, error: insertError } = await supabase
+      .from('workflows')
+      .insert({
+        id: workflowId,
+        user_id: session.user.id,
+        name: parsed.recipeName,
+        description: parsed.description,
+        servings: parsed.servings || null,
+        total_time_minutes: parsed.totalEstimatedMinutes,
+        ingredients: parsed.ingredients,
+        steps: parsed.steps,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('❌ Database insert error:', insertError);
+      return {
+        success: false,
+        error: `Failed to save recipe: ${insertError.message}`
+      };
+    }
+
+    console.log('✅ Recipe saved as workflow:', workflowId);
+
+    return {
+      success: true,
+      workflowId: workflowId
+    };
+
+  } catch (error: any) {
+    console.error('💥 Error in parseAndSaveRecipe:', error);
+    return {
+      success: false,
+      error: error.message || 'An unexpected error occurred'
+    };
+  }
+}
+
+/**
+ * Creates the workflow insert object (for manual control)
  * 
  * @param parsed - The ParsedRecipe from parseRecipe()
  * @param userId - The authenticated user's ID
  */
 export function toWorkflowInsert(parsed: ParsedRecipe, userId: string) {
   return {
+    id: `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    user_id: userId,
     name: parsed.recipeName,
     description: parsed.description,
-    user_id: userId,
+    servings: parsed.servings || null,
+    total_time_minutes: parsed.totalEstimatedMinutes,
+    ingredients: parsed.ingredients,
     steps: parsed.steps,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-  };
-}
-
-/**
- * Creates the object you'd pass to supabase.from('batch_templates').insert(...)
- * 
- * @param parsed - The ParsedRecipe from parseRecipe()
- * @param userId - The authenticated user's ID
- * @param workflowId - The ID of the workflow you just inserted
- */
-export function toBatchTemplateInsert(parsed: ParsedRecipe, userId: string, workflowId: string) {
-  return {
-    workflow_id: workflowId,
-    user_id: userId,
-    name: parsed.recipeName,
-    ingredients: parsed.ingredients,
-    servings: parsed.servings || null,
-    total_estimated_minutes: parsed.totalEstimatedMinutes,
-    created_at: new Date().toISOString(),
   };
 }

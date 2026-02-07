@@ -67,7 +67,7 @@ export default function Workflows({
       .is('completed_at', null)
       .order('updated_at', { ascending: false });
 const { data: freshMembers } = await supabase
-      .from('network_members')
+      .from('networks')
       .select('*')
       .eq('owner_id', user.id);
 
@@ -186,6 +186,7 @@ const { data: freshMembers } = await supabase
       if (error) throw error;
 
       await fetchBatches();
+      await fetchWorkflows(); // ADDED
       await fetchActiveSessions();
       alert('Batch claimed successfully!');
     } catch (error) {
@@ -212,6 +213,7 @@ const { data: freshMembers } = await supabase
       if (error) throw error;
 
       await fetchBatches();
+      await fetchWorkflows(); // ADDED
       await fetchActiveSessions();
       alert('Batch released successfully!');
     } catch (error) {
@@ -238,6 +240,7 @@ const { data: freshMembers } = await supabase
       if (error) throw error;
 
       await fetchBatches();
+      await fetchWorkflows(); // ADDED
       await fetchActiveSessions();
       setAssignBatchModalOpen(false);
       alert(`Batch assigned to ${deviceName}`);
@@ -261,6 +264,7 @@ const { data: freshMembers } = await supabase
       if (error) throw error;
 
       await fetchBatches();
+      await fetchWorkflows(); // ADDED
       await fetchActiveSessions();
       alert('Batch canceled successfully');
     } catch (error) {
@@ -745,7 +749,7 @@ const { data: freshMembers } = await supabase
         onClose={() => setImportModalOpen(false)}
         userId={user.id}
         locationId={selectedLocationId !== 'all' ? selectedLocationId : undefined}
-        onSuccess={() => {
+        onWorkflowCreated={() => {
           fetchWorkflows();
           fetchBatches();
         }}

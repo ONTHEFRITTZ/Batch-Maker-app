@@ -3,7 +3,9 @@
 // Backend routes for time tracking
 // ============================================
 
-import { supabase } from '../../lib/supabase';
+import { getSupabaseClient } from '../../lib/supabase';
+
+const supabase = getSupabaseClient();
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 

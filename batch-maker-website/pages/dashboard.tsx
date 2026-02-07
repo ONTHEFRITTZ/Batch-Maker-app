@@ -194,7 +194,7 @@ export default function EnhancedDashboard() {
     if (isPremium) {
       // Try alternative query - fetch separately if join fails
       const { data: membersData, error: membersError } = await supabase
-        .from('network_members')
+        .from('networks')
         .select('*')
         .eq('owner_id', userId);
 
@@ -260,7 +260,12 @@ export default function EnhancedDashboard() {
       query = query.eq('location_id', selectedLocationId);
     }
     
-    const { data } = await query.order('timestamp', { ascending: false });
+    const { data, error } = await query.order('timestamp', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching batch reports:', error);
+    }
+    
     setBatchReports(data || []);
   }
 

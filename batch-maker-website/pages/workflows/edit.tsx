@@ -1,8 +1,10 @@
 // pages/workflows/edit.tsx
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
-import { supabase } from '../../lib/supabase';
 import Link from 'next/link';
+import { getSupabaseClient } from '../../lib/supabase';
+
+const supabase = getSupabaseClient();
 
 interface WorkflowStep {
   id: string;
