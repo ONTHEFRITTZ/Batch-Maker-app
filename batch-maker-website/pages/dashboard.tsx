@@ -87,10 +87,12 @@ export default function EnhancedDashboard() {
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
-        table: 'workflows',
-        filter: `user_id=eq.${user.id}`
-      }, () => fetchWorkflows(user.id))
-      .subscribe();
+        table: 'workflows'
+      }, (payload) => {
+        console.log('🔄 Workflow changed:', payload);
+        fetchWorkflows(user.id);
+      })
+     .subscribe();
 
     const batchChannel = supabase
       .channel('batch-changes')

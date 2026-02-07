@@ -9,10 +9,12 @@
         "./*"
       ]
     },
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["react", "react-native"]
   },
   "include": [
     "**/*.ts",
-    "**/*.tsx"
+    "**/*.tsx",
+    ".expo/types/**/*.ts"
   ]
 }

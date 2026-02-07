@@ -183,31 +183,60 @@ export default function Calendar({
   async function handleStartBatch(batch: any) {
     try {
       const now = new Date();
+      const workflow = workflows.find(w => w.id === batch.workflow_id);
+      
+      if (!workflow) {
+        alert('Workflow not found');
+        return;
+      }
+
+      // Step 1: Create an actual batch in the batches table
+      const { data: newBatch, error: batchError } = await supabase
+        .from('batches')
+        .insert({
+          user_id: user.id,
+          workflow_id: batch.workflow_id,
+          name: batch.name,
+          batch_size_multiplier: batch.batch_size_multiplier || 1,
+          current_step_index: 0,
+          claimed_by: batch.assigned_to || user.id,
+          claimed_by_name: batch.assigned_to_name || 'You',
+          created_at: now.toISOString(),
+          updated_at: now.toISOString(),
+        })
+        .select()
+        .single();
+
+      if (batchError) throw batchError;
+
+      // Step 2: Update the scheduled batch to mark it as started
       const scheduledDateTime = batch.scheduled_time
         ? new Date(`${batch.scheduled_date}T${batch.scheduled_time}`)
         : new Date(`${batch.scheduled_date}T00:00:00`);
 
-      // If we're starting before the scheduled date/time, adjust to right now
       const updates: any = {
         status: 'in_progress',
         updated_at: now.toISOString(),
       };
 
+      // If starting early, update the scheduled date/time
       if (now < scheduledDateTime) {
         updates.scheduled_date = now.toISOString().split('T')[0];
         updates.scheduled_time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
       }
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('scheduled_batches')
         .update(updates)
         .eq('id', batch.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
       await fetchScheduledBatches();
-      // Refresh the day panel so it reflects the status change
-      // (batch will still appear but now with in_progress styling)
+      alert(`Batch "${batch.name}" started! You can now work on it from the Workflows page.`);
+      
+      // Optionally navigate to the batch execution page
+      // router.push(`/batch-execution?id=${newBatch.id}`);
     } catch (error) {
       console.error('Error starting batch:', error);
       alert('Failed to start batch');
@@ -481,11 +510,11 @@ export default function Calendar({
                       </div>
 
                       <div className="text-xs text-gray-500 space-y-0.5">
-                        {workflow && <div>📋orkflow: {workflow.name}</div>}
-                        {batch.scheduled_time && <div>Time: {batch.scheduled_time}</div>}
-                        {batch.assigned_to && <div>Assigned to: {batch.assigned_to_name || resolveAssigneeName(batch.assigned_to)}</div>}
-                        {batch.batch_size_multiplier !== 1 && <div>Size: {batch.batch_size_multiplier}x</div>}
-                        {batch.notes && <div className="italic mt-1">{batch.notes}</div>}
+                        {workflow && <div>📋 Workflow: {workflow.name}</div>}
+                        {batch.scheduled_time && <div>⏰ Time: {batch.scheduled_time}</div>}
+                        {batch.assigned_to && <div>👤 Assigned to: {batch.assigned_to_name || resolveAssigneeName(batch.assigned_to)}</div>}
+                        {batch.batch_size_multiplier !== 1 && <div>📊 Size: {batch.batch_size_multiplier}x</div>}
+                        {batch.notes && <div className="italic mt-1">💬 {batch.notes}</div>}
                       </div>
                     </div>
 

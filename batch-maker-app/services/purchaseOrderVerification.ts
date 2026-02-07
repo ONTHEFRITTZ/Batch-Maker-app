@@ -4,7 +4,6 @@
 // Track discrepancies, backorders, and supplier issues
 // ============================================================
 
-// UPDATE THIS PATH if your supabase client lives somewhere else:
 import { supabase } from '../app/lib/supabase';
 
 // ============================================================

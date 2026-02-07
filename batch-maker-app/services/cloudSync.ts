@@ -20,7 +20,7 @@ export async function pushToCloud(): Promise<SyncResult> {
   };
 
   try {
-    console.log('📤 Starting cloud sync...');
+    console.log('Starting cloud sync...');
 
     // Get current session
     const { data: { session } } = await supabase.auth.getSession();
@@ -162,7 +162,7 @@ export async function pushToCloud(): Promise<SyncResult> {
 
 export async function pullFromCloud(): Promise<void> {
   try {
-    console.log('📥 Pulling data from cloud...');
+    console.log('Pulling data from cloud...');
 
     const { data: { session } } = await supabase.auth.getSession();
     
@@ -185,7 +185,7 @@ export async function pullFromCloud(): Promise<void> {
 
     const data = await response.json();
     
-    console.log('📦 Received from cloud:', {
+    console.log('Received from cloud:', {
       workflows: data.workflows?.length || 0,
       batches: data.batches?.length || 0,
       reports: data.reports?.length || 0,

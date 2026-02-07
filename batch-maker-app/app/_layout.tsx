@@ -4,7 +4,6 @@ import * as Linking from 'expo-linking';
 import CustomHeader from './components/CustomHeader';
 import { initializeDatabase } from '../services/database';
 import { initializeReports } from '../services/reports';
-import { initializePhotoStorage } from '../services/photoStorage';
 import { syncService } from '../services/sync';
 import { ThemeProvider } from '../contexts/ThemeContext';
 
@@ -29,9 +28,6 @@ export default function Layout() {
         
         await initializeReports();
         console.log('✅ Reports initialized');
-        
-        await initializePhotoStorage();
-        console.log('✅ Photo storage initialized');
         
         await syncService.initialize();
         console.log('✅ Sync service initialized');

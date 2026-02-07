@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import 'react-native-get-random-values';
+import { v4 as uuidv4 } from 'uuid';
 
 const DEVICE_ID_KEY = '@device_id';
 const DEVICE_NAME_KEY = '@device_name';
@@ -32,7 +34,7 @@ class SyncService {
   async initialize(): Promise<void> {
     let storedId = await AsyncStorage.getItem(DEVICE_ID_KEY);
     if (!storedId) {
-      storedId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      storedId = uuidv4(); // FIXED: Generate proper UUID
       await AsyncStorage.setItem(DEVICE_ID_KEY, storedId);
     }
     this.deviceId = storedId;

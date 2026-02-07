@@ -1,15 +1,25 @@
 // ============================================
-// FILE: screens/ClockInScreen.tsx
+// FILE: app/screens/ClockInScreen.tsx
 // Mobile clock-in/out with shift schedule view
+// React 18/19 compatible version
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { supabase } from '../../services/supabaseClient';
+import { supabase } from '../lib/supabase';
+
+interface Location {
+  id: string;
+  user_id: string;
+  name: string;
+  address: string | null;
+}
 
 interface NetworkConnection {
+  location_id: string;
   owner_id: string;
   owner_name: string;
+  location_name: string;
   role: 'owner' | 'admin' | 'member';
   require_clock_in: boolean;
   allow_anytime_access: boolean;
@@ -17,7 +27,7 @@ interface NetworkConnection {
 
 interface Shift {
   id: string;
-  owner_id: string;
+  location_id: string;
   shift_date: string;
   start_time: string;
   end_time: string;
@@ -28,21 +38,19 @@ interface Shift {
 
 interface ActiveEntry {
   id: string;
-  owner_id: string;
+  location_id: string;
   clock_in: string;
   shift_id: string | null;
 }
 
-export default function ClockInScreen() {
+const ClockInScreen: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [networks, setNetworks] = useState<NetworkConnection[]>([]);
   const [upcomingShifts, setUpcomingShifts] = useState<Record<string, Shift[]>>({});
   const [activeEntry, setActiveEntry] = useState<ActiveEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [clockingIn, setClockingIn] = useState(false);
-  const [shiftAlert, setShiftAlert] = useState<{ alert: boolean; message?: string } | null>(null);
 
-  // Load user and data
   useEffect(() => {
     loadUser();
   }, []);
@@ -53,7 +61,6 @@ export default function ClockInScreen() {
     loadActiveEntry();
     loadUpcomingShifts();
 
-    // Check for shift-end alert every 5 minutes
     const alertInterval = setInterval(checkShiftAlert, 5 * 60 * 1000);
     return () => clearInterval(alertInterval);
   }, [user]);
@@ -65,25 +72,65 @@ export default function ClockInScreen() {
   }
 
   async function loadNetworks() {
-    // Get all network_member_roles where this user is a member
-    const { data: roles } = await supabase
-      .from('network_member_roles')
-      .select('*, profiles!network_member_roles_owner_id_fkey(device_name, email)')
+    if (!user) return;
+
+    const connections: NetworkConnection[] = [];
+
+    const { data: ownedLocations } = await supabase
+      .from('locations')
+      .select('*')
       .eq('user_id', user.id);
 
-    if (roles) {
-      const connections: NetworkConnection[] = roles.map(r => ({
-        owner_id: r.owner_id,
-        owner_name: r.profiles?.device_name || r.profiles?.email || 'Unknown Business',
-        role: r.role,
-        require_clock_in: r.require_clock_in,
-        allow_anytime_access: r.allow_anytime_access,
-      }));
-      setNetworks(connections);
+    const { data: memberRoles } = await supabase
+      .from('network_member_roles')
+      .select(`
+        *,
+        profiles:owner_id (device_name, email)
+      `)
+      .eq('user_id', user.id);
+
+    if (ownedLocations) {
+      ownedLocations.forEach((loc: Location) => {
+        connections.push({
+          location_id: loc.id,
+          owner_id: user.id,
+          owner_name: 'My Business',
+          location_name: loc.name,
+          role: 'owner',
+          require_clock_in: false,
+          allow_anytime_access: true,
+        });
+      });
     }
+
+    if (memberRoles) {
+      for (const r of memberRoles) {
+        const { data: locationData } = await supabase
+          .from('locations')
+          .select('id, name, user_id')
+          .eq('user_id', r.owner_id)
+          .single();
+
+        if (locationData) {
+          connections.push({
+            location_id: locationData.id,
+            owner_id: r.owner_id,
+            owner_name: (r.profiles as any)?.device_name || (r.profiles as any)?.email || 'Unknown Business',
+            location_name: locationData.name,
+            role: r.role,
+            require_clock_in: r.require_clock_in,
+            allow_anytime_access: r.allow_anytime_access,
+          });
+        }
+      }
+    }
+
+    setNetworks(connections);
   }
 
   async function loadActiveEntry() {
+    if (!user) return;
+
     const { data } = await supabase
       .from('time_entries')
       .select('*')
@@ -95,6 +142,8 @@ export default function ClockInScreen() {
   }
 
   async function loadUpcomingShifts() {
+    if (!user) return;
+
     const today = new Date().toISOString().split('T')[0];
     const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -110,28 +159,63 @@ export default function ClockInScreen() {
 
     if (shifts) {
       const grouped: Record<string, Shift[]> = {};
-      shifts.forEach(s => {
-        if (!grouped[s.owner_id]) grouped[s.owner_id] = [];
-        grouped[s.owner_id].push(s);
+      shifts.forEach((s: Shift) => {
+        if (!grouped[s.location_id]) grouped[s.location_id] = [];
+        grouped[s.location_id].push(s);
       });
       setUpcomingShifts(grouped);
     }
   }
 
-  async function handleClockIn(ownerId: string) {
+  async function handleClockIn(locationId: string) {
     setClockingIn(true);
 
     try {
-      const { data, error } = await supabase.functions.invoke('clock-in', {
-        body: { owner_id: ownerId },
-      });
+      const today = new Date().toISOString().split('T')[0];
+      const { data: todayShifts } = await supabase
+        .from('shifts')
+        .select('*')
+        .eq('assigned_to', user.id)
+        .eq('location_id', locationId)
+        .eq('shift_date', today)
+        .eq('status', 'scheduled');
+
+      if (!todayShifts || todayShifts.length === 0) {
+        Alert.alert(
+          'No Shift Scheduled',
+          'You don\'t have a scheduled shift today. Are you sure you want to clock in?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => setClockingIn(false) },
+            { text: 'Yes, Clock In', onPress: () => performClockIn(locationId) }
+          ]
+        );
+        return;
+      }
+
+      await performClockIn(locationId, todayShifts[0].id);
+    } catch (err: any) {
+      Alert.alert('Clock In Failed', err.message || 'Unable to clock in at this time');
+      setClockingIn(false);
+    }
+  }
+
+  async function performClockIn(locationId: string, shiftId?: string) {
+    try {
+      const { error } = await supabase
+        .from('time_entries')
+        .insert({
+          user_id: user.id,
+          location_id: locationId,
+          shift_id: shiftId || null,
+          clock_in: new Date().toISOString(),
+        });
 
       if (error) throw error;
 
       await loadActiveEntry();
       Alert.alert('Clocked In', 'You are now on the clock');
     } catch (err: any) {
-      Alert.alert('Clock In Failed', err.message || 'Unable to clock in at this time');
+      Alert.alert('Clock In Failed', err.message || 'Unable to clock in');
     } finally {
       setClockingIn(false);
     }
@@ -141,7 +225,14 @@ export default function ClockInScreen() {
     setClockingIn(true);
 
     try {
-      const { error } = await supabase.functions.invoke('clock-out', {});
+      if (!activeEntry) {
+        throw new Error('No active time entry found');
+      }
+
+      const { error } = await supabase
+        .from('time_entries')
+        .update({ clock_out: new Date().toISOString() })
+        .eq('id', activeEntry.id);
 
       if (error) throw error;
 
@@ -155,15 +246,24 @@ export default function ClockInScreen() {
   }
 
   async function checkShiftAlert() {
-    if (!activeEntry) return;
+    if (!activeEntry || !activeEntry.shift_id) return;
 
-    const { data } = await supabase.functions.invoke('check-shift-alert', {});
+    const { data: shift } = await supabase
+      .from('shifts')
+      .select('end_time')
+      .eq('id', activeEntry.shift_id)
+      .single();
 
-    if (data?.alert) {
-      setShiftAlert(data);
+    if (!shift) return;
+
+    const now = new Date();
+    const shiftEnd = new Date(`${new Date().toISOString().split('T')[0]}T${shift.end_time}`);
+    const thirtyMinutesAfterShift = new Date(shiftEnd.getTime() + 30 * 60 * 1000);
+
+    if (now > thirtyMinutesAfterShift) {
       Alert.alert(
         'Still Working?',
-        data.message,
+        'Your shift ended over 30 minutes ago. Are you still working?',
         [
           { text: 'Yes, Still Working', style: 'default' },
           { text: 'Clock Out Now', onPress: handleClockOut, style: 'destructive' },
@@ -174,7 +274,7 @@ export default function ClockInScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color="#3b82f6" />
       </View>
     );
@@ -182,24 +282,23 @@ export default function ClockInScreen() {
 
   if (!user) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, styles.centered]}>
         <Text style={styles.emptyText}>Please sign in to view your schedule</Text>
       </View>
     );
   }
 
-  const currentNetwork = networks.find(n => n.owner_id === activeEntry?.owner_id);
+  const currentNetwork = networks.find(n => n.location_id === activeEntry?.location_id);
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
-      {/* Current Status */}
       {activeEntry ? (
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
             <View style={[styles.statusDot, { backgroundColor: '#22c55e' }]} />
             <Text style={styles.statusTitle}>Clocked In</Text>
           </View>
-          <Text style={styles.statusBusiness}>{currentNetwork?.owner_name || 'Unknown'}</Text>
+          <Text style={styles.statusBusiness}>{currentNetwork?.location_name || 'Unknown'}</Text>
           <Text style={styles.statusTime}>
             Since {new Date(activeEntry.clock_in).toLocaleTimeString()}
           </Text>
@@ -221,31 +320,29 @@ export default function ClockInScreen() {
             <View style={[styles.statusDot, { backgroundColor: '#9ca3af' }]} />
             <Text style={styles.statusTitle}>Not Clocked In</Text>
           </View>
-          <Text style={styles.statusSubtitle}>Select a business below to clock in</Text>
+          <Text style={styles.statusSubtitle}>Select a location below to clock in</Text>
         </View>
       )}
 
-      {/* Connected Networks */}
       {networks.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.emptyText}>
-            You're not connected to any businesses yet. Ask your employer to send you an invite.
+            You don't have any locations yet. Create a location or ask your employer for an invite.
           </Text>
         </View>
       ) : (
-        networks.map(network => {
-          const shifts = upcomingShifts[network.owner_id] || [];
-          const isClockedInHere = activeEntry?.owner_id === network.owner_id;
+        networks.map((network, index) => {
+          const shifts = upcomingShifts[network.location_id] || [];
+          const isClockedInHere = activeEntry?.location_id === network.location_id;
 
           return (
-            <View key={network.owner_id} style={styles.card}>
-              <Text style={styles.cardTitle}>{network.owner_name}</Text>
+            <View key={`${network.location_id}-${index}`} style={styles.card}>
+              <Text style={styles.cardTitle}>{network.location_name}</Text>
               <Text style={styles.cardSubtitle}>
                 {network.role === 'owner' ? '👑 Owner' : network.role === 'admin' ? '⭐ Admin' : '👤 Team Member'}
                 {network.allow_anytime_access && ' • Access Anytime'}
               </Text>
 
-              {/* Upcoming Shifts */}
               {shifts.length > 0 && (
                 <View style={styles.shiftsSection}>
                   <Text style={styles.shiftsSectionTitle}>Upcoming Shifts</Text>
@@ -270,11 +367,10 @@ export default function ClockInScreen() {
                 </View>
               )}
 
-              {/* Clock In Button */}
-              {!activeEntry && !network.allow_anytime_access && (
+              {!activeEntry && (
                 <TouchableOpacity
                   style={[styles.clockButton, styles.clockInButton]}
-                  onPress={() => handleClockIn(network.owner_id)}
+                  onPress={() => handleClockIn(network.location_id)}
                   disabled={clockingIn}
                 >
                   {clockingIn ? (
@@ -296,7 +392,7 @@ export default function ClockInScreen() {
       )}
     </ScrollView>
   );
-}
+};
 
 const styles = StyleSheet.create({
   scrollView: {
@@ -305,14 +401,17 @@ const styles = StyleSheet.create({
   },
   container: {
     padding: 16,
-    gap: 16,
   },
-
-  // Status card
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   statusCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -350,12 +449,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#6b7280',
   },
-
-  // Cards
   card: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
@@ -373,8 +471,6 @@ const styles = StyleSheet.create({
     color: '#6b7280',
     marginBottom: 12,
   },
-
-  // Shifts
   shiftsSection: {
     marginBottom: 16,
     paddingTop: 12,
@@ -403,8 +499,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6b7280',
   },
-
-  // Buttons
   clockButton: {
     height: 48,
     borderRadius: 8,
@@ -422,8 +516,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-
-  // Active indicator
   activeIndicator: {
     marginTop: 12,
     padding: 8,
@@ -436,7 +528,6 @@ const styles = StyleSheet.create({
     color: '#16a34a',
     textAlign: 'center',
   },
-
   emptyText: {
     fontSize: 14,
     color: '#9ca3af',
@@ -445,3 +536,5 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
   },
 });
+
+export default ClockInScreen;
