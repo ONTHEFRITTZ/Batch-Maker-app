@@ -3,7 +3,7 @@
     "name": "Batch Maker",
     "slug": "batch-maker",
     "scheme": "batchmaker",
-    "version": "1.0.1",
+    "version": "1.0.4",
     "orientation": "portrait",
     "platforms": [
       "ios",
