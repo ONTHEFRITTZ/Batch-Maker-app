@@ -1,5 +1,7 @@
-// FINAL PRODUCTION VERSION - parse-recipe-url
-// File: supabase/functions/parse-recipe-url/index.ts
+// @ts-nocheck
+
+// parse-recipe-url edge function
+// Fetches recipe from URL and parses it
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
@@ -8,18 +10,65 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const SYSTEM_PROMPT = `You are a professional recipe parser for a bakery management app.
+
+CRITICAL REQUIREMENTS:
+1. First step MUST ALWAYS be "Prepare Ingredients" with ALL ingredients
+2. Each cooking step should ONLY list ingredients used in THAT step
+3. Extract timer durations (in minutes) ONLY for waiting steps
+4. DO NOT include metadata (prep time, cook time, servings, calories)
+5. Return ONLY valid JSON, no markdown, no code blocks
+
+JSON STRUCTURE:
+{
+  "recipeName": "Name of dish",
+  "description": "Brief 1-2 sentence description",
+  "ingredients": [
+    {"name": "flour", "amount": "500", "unit": "g"}
+  ],
+  "steps": [
+    {
+      "order": 1,
+      "title": "Prepare Ingredients",
+      "description": "Gather and measure all ingredients.",
+      "duration_minutes": 0,
+      "ingredients_for_step": ["flour: 500g", "water: 350ml", "salt: 10g"]
+    },
+    {
+      "order": 2,
+      "title": "Mix Dough",
+      "description": "Combine flour and water...",
+      "duration_minutes": 5,
+      "ingredients_for_step": ["flour: 500g", "water: 350ml"]
+    },
+    {
+      "order": 3,
+      "title": "Rest Dough",
+      "description": "Cover and let rest...",
+      "duration_minutes": 30,
+      "ingredients_for_step": []
+    }
+  ]
+}
+
+RULES:
+- Step 1 is ALWAYS ingredient prep
+- ingredients_for_step: array of strings like ["item: amount"]
+- duration_minutes: only for waiting (resting, baking, chilling)
+- Return ONLY JSON`;
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
   try {
-    console.log('🔍 parse-recipe-url called');
+    console.log('parse-recipe-url called');
     
     const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
     
     if (!anthropicApiKey) {
-      console.error('❌ Missing API key');
+      console.error('Missing API key');
       return new Response(
         JSON.stringify({ error: 'CONFIG_ERROR', message: 'API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -34,9 +83,8 @@ serve(async (req) => {
       );
     }
 
-    console.log('🔗 Fetching:', url);
+    console.log('Fetching:', url);
 
-    // Fetch recipe page
     const fetchResponse = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecipeBot/1.0)' }
     });
@@ -46,9 +94,8 @@ serve(async (req) => {
     }
     
     const htmlContent = await fetchResponse.text();
-    console.log('✅ Fetched HTML:', htmlContent.length, 'chars');
+    console.log('Fetched HTML:', htmlContent.length, 'chars');
 
-    // Extract text
     const textContent = htmlContent
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -57,62 +104,16 @@ serve(async (req) => {
       .trim()
       .substring(0, 10000);
 
-    console.log('✅ Extracted text:', textContent.length, 'chars');
+    console.log('Extracted text:', textContent.length, 'chars');
 
-    const prompt = `You are a professional recipe parser. Extract recipe information from the webpage content below and return it as valid JSON.
-
-CRITICAL: Return ONLY the JSON object with no markdown formatting, no code fences, no extra text.
-
-REQUIRED JSON STRUCTURE:
-{
-  "recipeName": "Name of the recipe",
-  "description": "Brief 1-2 sentence description of the dish",
-  "servings": "4 servings",
-  "totalEstimatedMinutes": 45,
-  "ingredients": [
-    {
-      "name": "all-purpose flour",
-      "amount": "2.5",
-      "unit": "cups"
-    }
-  ],
-  "steps": [
-    {
-      "order": 1,
-      "title": "Preheat oven",
-      "description": "Preheat the oven to 350°F and line a baking sheet with parchment paper",
-      "duration_minutes": 5,
-      "temperature": 350,
-      "temperature_unit": "F",
-      "notes": "Make sure oven is fully heated before baking"
-    }
-  ]
-}
-
-PARSING RULES:
-1. INGREDIENTS:
-   - Keep amounts as strings: "2.5", "1/2", "2-3"
-   - Use empty string "" for unit when counting items (3 eggs, 2 onions)
-   - For "to taste": amount = "to taste", add notes
-   - Normalize units: cups, tbsp, tsp, oz, lb, g, kg, ml, l
-
-2. STEPS:
-   - Keep titles short: 3-5 words max
-   - Descriptions should be detailed and actionable
-   - Estimate duration_minutes if not stated
-   - Include temperature and temperature_unit when mentioned
-   - Add notes for tips, warnings, alternatives
-
-3. NOT A RECIPE:
-   - If the text is clearly not a recipe, return:
-     {"error": "not_a_recipe", "message": "This does not appear to be a recipe"}
+    const prompt = `${SYSTEM_PROMPT}
 
 WEBPAGE CONTENT:
 ${textContent}
 
-Return ONLY the JSON object.`;
+Parse this recipe and return ONLY the JSON object.`;
 
-    console.log('🤖 Calling Claude...');
+    console.log('Calling Claude...');
     
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -133,7 +134,7 @@ Return ONLY the JSON object.`;
 
     if (!claudeResponse.ok) {
       const errorText = await claudeResponse.text();
-      console.error('❌ Claude error:', errorText);
+      console.error('Claude error:', errorText);
       return new Response(
         JSON.stringify({ 
           error: 'API_FAILURE', 
@@ -147,26 +148,18 @@ Return ONLY the JSON object.`;
     const claudeData = await claudeResponse.json();
     const responseText = claudeData.content[0].text;
     
-    console.log('✅ Success! Response length:', responseText.length);
+    console.log('Success! Response length:', responseText.length);
 
-    // Parse the JSON response
     let parsedRecipe;
     try {
-      // Remove markdown code fences if present
       let cleaned = responseText.trim();
-      if (cleaned.startsWith('```json')) {
-        cleaned = cleaned.slice(7);
-      } else if (cleaned.startsWith('```')) {
-        cleaned = cleaned.slice(3);
-      }
-      if (cleaned.endsWith('```')) {
-        cleaned = cleaned.slice(0, -3);
-      }
+      if (cleaned.startsWith('```json')) cleaned = cleaned.slice(7);
+      else if (cleaned.startsWith('```')) cleaned = cleaned.slice(3);
+      if (cleaned.endsWith('```')) cleaned = cleaned.slice(0, -3);
       cleaned = cleaned.trim();
 
       parsedRecipe = JSON.parse(cleaned);
 
-      // Check if it's not a recipe
       if (parsedRecipe.error === 'not_a_recipe') {
         return new Response(
           JSON.stringify({
@@ -177,7 +170,7 @@ Return ONLY the JSON object.`;
         );
       }
     } catch (parseError: any) {
-      console.error('❌ JSON parse error:', parseError);
+      console.error('JSON parse error:', parseError);
       return new Response(
         JSON.stringify({
           error: 'PARSE_FAILURE',
@@ -188,15 +181,12 @@ Return ONLY the JSON object.`;
       );
     }
 
-    // Return in the format your frontend expects
     return new Response(
       JSON.stringify({ 
         success: true,
         workflow: {
           name: parsedRecipe.recipeName,
           description: parsedRecipe.description || '',
-          servings: parsedRecipe.servings || null,
-          total_time_minutes: parsedRecipe.totalEstimatedMinutes || 0,
           ingredients: parsedRecipe.ingredients || [],
           steps: parsedRecipe.steps || [],
         }
@@ -205,7 +195,7 @@ Return ONLY the JSON object.`;
     );
 
   } catch (error: any) {
-    console.error('💥 Error:', error.message);
+    console.error('Error:', error.message);
     return new Response(
       JSON.stringify({ 
         error: 'INTERNAL_ERROR', 
