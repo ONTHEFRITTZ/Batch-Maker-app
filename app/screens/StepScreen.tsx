@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { FC, useEffect, useState } from "react";
 import { ScrollView, Text, View, TouchableOpacity, StyleSheet, Alert } from "react-native";
 import * as Haptics from 'expo-haptics';
+import { Ionicons } from '@expo/vector-icons';
 import { 
   getWorkflows, getBatch, updateBatchStep, completeBatchStep,
   getTimerStatus, acknowledgeTimer, getDeviceName,
@@ -140,28 +141,25 @@ export const StepScreen: FC = () => {
   }
 
   const extractChecklistItems = (step: any): string[] => {
-  // Priority 1: Check for separate ingredients array (from URL parser and spreadsheet parser)
-  if (step.ingredients && Array.isArray(step.ingredients) && step.ingredients.length > 0) {
-    return step.ingredients;
-  }
-  
-  // Priority 2: Check for checklistItems array (from recipe text parser)
-  if (step.checklistItems && Array.isArray(step.checklistItems) && step.checklistItems.length > 0) {
-    return step.checklistItems;
-  }
-  
-  // Priority 3: Extract from description (legacy format)
-  const checklistMatch = step.description.match(/Checklist:\n([\s\S]*?)(?=\n\n|$)/);
-  if (!checklistMatch) return [];
-  
-  return checklistMatch[1]
-    .split('\n')
-    .map((line: string)=> line.replace(/^☐\s*/, '').trim())
-    .filter(Boolean);
-};
+    if (step.ingredients && Array.isArray(step.ingredients) && step.ingredients.length > 0) {
+      return step.ingredients;
+    }
+    
+    if (step.checklistItems && Array.isArray(step.checklistItems) && step.checklistItems.length > 0) {
+      return step.checklistItems;
+    }
+    
+    const checklistMatch = step.description.match(/📋 Checklist:\n([\s\S]*?)(?=\n\n|$)/);
+    if (!checklistMatch) return [];
+    
+    return checklistMatch[1]
+      .split('\n')
+      .map((line: string) => line.replace(/^☐\s*/, '').trim())
+      .filter(Boolean);
+  };
 
   const extractYouTubeUrl = (description: string): string | null => {
-    const match = description.match(/Video:\s*(https?:\/\/[^\s]+)/);
+    const match = description.match(/🎥 Video:\s*(https?:\/\/[^\s]+)/);
     return match ? match[1] : null;
   };
 
@@ -180,13 +178,12 @@ export const StepScreen: FC = () => {
     applyBatchMultiplier(item, batch.batchSizeMultiplier)
   );
 
-  
   const youtubeUrl = extractYouTubeUrl(currentStep.description);
   
   const displayDescription = applyBatchMultiplier(
     currentStep.description
-      .replace(/Checklist:\n[\s\S]*?(?=\n\n|$)/, '')
-      .replace(/Video:\s*https?:\/\/[^\s]+/, '')
+      .replace(/📋 Checklist:\n[\s\S]*?(?=\n\n|$)/, '')
+      .replace(/🎥 Video:\s*https?:\/\/[^\s]+/, '')
       .trim(),
     batch.batchSizeMultiplier
   );
@@ -221,7 +218,6 @@ export const StepScreen: FC = () => {
 
     await completeBatchStep(batchId!, currentStep.id);
 
-    // Create batch completion report
     try {
       const deviceName = await getDeviceName();
       const endTime = Date.now();
@@ -289,11 +285,9 @@ export const StepScreen: FC = () => {
 
   const extractSubRecipeName = (item: unknown): string => {
     if (typeof item !== 'string') return '';
-
     const match = /\*See (.+?) recipe/.exec(item);
     return match?.[1] ?? '';
   };
-
 
   const handleSubRecipeClick = (subRecipeName: string) => {
     const subWorkflow = getWorkflows().find(w => 
@@ -327,30 +321,7 @@ export const StepScreen: FC = () => {
       style={[styles.container, { backgroundColor: colors.background }]} 
       contentContainerStyle={styles.content}
     >
-      {/* Voice Command Status Banner */}
-      {isListening && (
-        <View style={[styles.voiceBanner, { backgroundColor: colors.success }]}>
-          <Text style={styles.voiceBannerText}>Listening...</Text>
-        </View>
-      )}
-
-      {recognizedText && !isListening && (
-        <View style={[styles.voiceBanner, { backgroundColor: colors.primary + '40' }]}>
-          <Text style={[styles.voiceBannerSmallText, { color: colors.text }]}>
-            Heard: "{recognizedText}"
-          </Text>
-        </View>
-      )}
-
-      {voiceError && (
-        <View style={[styles.voiceBanner, { backgroundColor: colors.error + '20' }]}>
-          <Text style={[styles.voiceBannerSmallText, { color: colors.error }]}>
-            {voiceError}
-          </Text>
-        </View>
-      )}
-
-      {/* Header with Clear button */}
+      {/* Header with microphone and clear button */}
       <View style={styles.header}>
         <View style={styles.progressContainer}>
           <Text style={[styles.progressText, { color: colors.textSecondary }]}>
@@ -369,28 +340,49 @@ export const StepScreen: FC = () => {
           </View>
         </View>
 
-        {checklistItems.length > 0 && (
-          <TouchableOpacity 
-            onPress={handleClear} 
-            style={[styles.clearButton, { backgroundColor: colors.textSecondary }]}
+        <View style={styles.headerButtons}>
+          {/* Voice command microphone icon */}
+          <TouchableOpacity
+            onPress={isListening ? stopListening : startListening}
+            style={[
+              styles.micButton,
+              { backgroundColor: isListening ? colors.error : colors.success }
+            ]}
           >
-            <Text style={styles.clearButtonText}>Clear</Text>
+            <Ionicons 
+              name={isListening ? "stop" : "mic"} 
+              size={24} 
+              color="white" 
+            />
           </TouchableOpacity>
-        )}
+
+          {checklistItems.length > 0 && (
+            <TouchableOpacity 
+              onPress={handleClear} 
+              style={[styles.clearButton, { backgroundColor: colors.textSecondary }]}
+            >
+              <Text style={styles.clearButtonText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
-      {/* Voice Command Button - Big and Easy to Press */}
-      <TouchableOpacity
-        onPress={isListening ? stopListening : startListening}
-        style={[
-          styles.voiceButton,
-          { backgroundColor: isListening ? colors.error : colors.success }
-        ]}
-      >
-        <Text style={styles.voiceButtonText}>
-          {isListening ? 'Stop Voice Commands' : 'Voice Commands'}
-        </Text>
-      </TouchableOpacity>
+      {/* Voice status - only show when active or error */}
+      {recognizedText && !isListening && (
+        <View style={[styles.voiceStatusBanner, { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}>
+          <Text style={[styles.voiceStatusText, { color: colors.text }]}>
+            Heard: "{recognizedText}"
+          </Text>
+        </View>
+      )}
+
+      {voiceError && (
+        <View style={[styles.voiceStatusBanner, { backgroundColor: colors.error + '20', borderColor: colors.error }]}>
+          <Text style={[styles.voiceStatusText, { color: colors.error }]}>
+            {voiceError}
+          </Text>
+        </View>
+      )}
 
       {/* Step title */}
       <View style={styles.stepHeader}>
@@ -471,17 +463,19 @@ export const StepScreen: FC = () => {
         </View>
       )}
 
-      {/* Voice Commands Help */}
-      <View style={[styles.card, { backgroundColor: colors.surface + '80', shadowColor: colors.shadow }]}>
-        <Text style={[styles.sectionTitle, { color: colors.text, fontSize: 14 }]}>
-          Say These Commands:
-        </Text>
-        <Text style={[styles.voiceHelpText, { color: colors.textSecondary }]}>
-          • "Next step" or "Previous step"{'\n'}
-          • "Clear checklist"{'\n'}
-          • "Finish batch" (on last step)
-        </Text>
-      </View>
+      {/* Voice Commands Help - Collapsible hint */}
+      {isListening && (
+        <View style={[styles.card, { backgroundColor: colors.surface + '80', shadowColor: colors.shadow }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text, fontSize: 14 }]}>
+            Voice Commands:
+          </Text>
+          <Text style={[styles.voiceHelpText, { color: colors.textSecondary }]}>
+            • "Next step" or "Previous step"{'\n'}
+            • "Clear checklist"{'\n'}
+            • "Finish batch" (on last step)
+          </Text>
+        </View>
+      )}
 
       {/* Navigation buttons */}
       <View style={styles.navigationContainer}>
@@ -546,47 +540,55 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 16, textAlign: 'center', marginBottom: 20 },
   backButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
   backButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
-  voiceBanner: { 
-    padding: 12, 
-    borderRadius: 8, 
-    marginBottom: 12,
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'flex-start', 
+    marginBottom: 20 
+  },
+  progressContainer: { flex: 1, marginRight: 12 },
+  progressText: { fontSize: 14, marginBottom: 8, fontWeight: '600' },
+  progressBar: { height: 8, borderRadius: 4, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4 },
+  headerButtons: { 
+    flexDirection: 'row', 
+    gap: 8,
+    alignItems: 'center'
+  },
+  micButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: 'center',
     alignItems: 'center',
-  },
-  voiceBannerText: { 
-    color: 'white', 
-    fontSize: 16, 
-    fontWeight: '600',
-  },
-  voiceBannerSmallText: { 
-    fontSize: 14, 
-    fontWeight: '500',
-  },
-  voiceButton: {
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 20,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowRadius: 3,
     elevation: 3,
   },
-  voiceButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
+  clearButton: { 
+    paddingHorizontal: 16, 
+    paddingVertical: 12, 
+    borderRadius: 8,
+    height: 44,
+    justifyContent: 'center'
+  },
+  clearButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
+  voiceStatusBanner: {
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  voiceStatusText: {
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   voiceHelpText: {
     fontSize: 13,
     lineHeight: 20,
   },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  progressContainer: { flex: 1, marginRight: 12 },
-  progressText: { fontSize: 14, marginBottom: 8, fontWeight: '600' },
-  progressBar: { height: 8, borderRadius: 4, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 4 },
-  clearButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
-  clearButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
   stepHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 12 },
   stepTitle: { fontSize: 28, fontWeight: 'bold', flex: 1 },
   multiplierBadge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
