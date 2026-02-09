@@ -1,9 +1,9 @@
-import { useEffect } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-import * as Linking from 'expo-linking';
-import { supabase } from './lib/supabase';
-import { useTheme } from '../contexts/ThemeContext';
+import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
+import { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../contexts/ThemeContext";
+import { supabase } from "../lib/supabase";
 
 export default function NotFound() {
   const router = useRouter();
@@ -14,12 +14,12 @@ export default function NotFound() {
       try {
         // Get the current URL
         const url = await Linking.getInitialURL();
-        console.log('Not found screen - checking URL:', url);
+        console.log("Not found screen - checking URL:", url);
 
         if (url) {
           // Check if this is an auth callback URL
           const parsedUrl = Linking.parse(url);
-          console.log('Parsed URL:', parsedUrl);
+          console.log("Parsed URL:", parsedUrl);
 
           // Extract tokens from the URL
           if (parsedUrl.queryParams) {
@@ -27,16 +27,16 @@ export default function NotFound() {
             const refresh_token = parsedUrl.queryParams.refresh_token as string;
 
             if (access_token && refresh_token) {
-              console.log('✅ Found tokens in not-found, setting session...');
-              
+              console.log("✅ Found tokens in not-found, setting session...");
+
               await supabase.auth.setSession({
                 access_token,
                 refresh_token,
               });
 
-              console.log('✅ Session set, redirecting to home...');
+              console.log("✅ Session set, redirecting to home...");
               setTimeout(() => {
-                router.replace('/');
+                router.replace("/");
               }, 500);
               return;
             }
@@ -44,13 +44,13 @@ export default function NotFound() {
         }
 
         // No auth tokens, just go home
-        console.log('No auth data found, redirecting to home');
+        console.log("No auth data found, redirecting to home");
         setTimeout(() => {
-          router.replace('/');
+          router.replace("/");
         }, 1000);
       } catch (error) {
-        console.error('Error in not-found handler:', error);
-        router.replace('/');
+        console.error("Error in not-found handler:", error);
+        router.replace("/");
       }
     };
 
@@ -60,9 +60,7 @@ export default function NotFound() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ActivityIndicator size="large" color={colors.primary} />
-      <Text style={[styles.text, { color: colors.text }]}>
-        Redirecting...
-      </Text>
+      <Text style={[styles.text, { color: colors.text }]}>Redirecting...</Text>
     </View>
   );
 }
@@ -70,8 +68,8 @@ export default function NotFound() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   text: {
     marginTop: 16,

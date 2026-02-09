@@ -7,6 +7,7 @@ export interface Step {
   description: string;
   timerMinutes?: number;
   completed?: boolean;
+  ingredients?: string[];
 }
 
 export interface Workflow {

@@ -1,15 +1,24 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useTheme } from '../../contexts/ThemeContext';
-import { supabase } from '../lib/supabase';
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useTheme } from "../../contexts/ThemeContext";
+import { supabase } from "../../lib/supabase";
 
 interface SubscriptionGateProps {
   children: React.ReactNode;
   fallback?: React.ReactNode;
 }
 
-export default function SubscriptionGate({ children, fallback }: SubscriptionGateProps) {
+export default function SubscriptionGate({
+  children,
+  fallback,
+}: SubscriptionGateProps) {
   const router = useRouter();
   const { colors } = useTheme();
   const [hasSubscription, setHasSubscription] = useState<boolean | null>(null);
@@ -21,8 +30,10 @@ export default function SubscriptionGate({ children, fallback }: SubscriptionGat
 
   const checkSubscription = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         setHasSubscription(false);
         setLoading(false);
@@ -32,27 +43,29 @@ export default function SubscriptionGate({ children, fallback }: SubscriptionGat
       // Check subscription status from your Supabase database
       // You'll need a subscriptions table that tracks Stripe subscriptions
       const { data: subscription, error } = await supabase
-        .from('subscriptions')
-        .select('status, current_period_end')
-        .eq('user_id', user.id)
+        .from("subscriptions")
+        .select("status, current_period_end")
+        .eq("user_id", user.id)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows returned
-        console.error('Error checking subscription:', error);
+      if (error && error.code !== "PGRST116") {
+        // PGRST116 = no rows returned
+        console.error("Error checking subscription:", error);
         setHasSubscription(false);
         setLoading(false);
         return;
       }
 
       // Check if subscription is active and not expired
-      const isActive = subscription && 
-        subscription.status === 'active' && 
+      const isActive =
+        subscription &&
+        subscription.status === "active" &&
         new Date(subscription.current_period_end) > new Date();
 
       setHasSubscription(isActive);
       setLoading(false);
     } catch (error) {
-      console.error('Error checking subscription:', error);
+      console.error("Error checking subscription:", error);
       setHasSubscription(false);
       setLoading(false);
     }
@@ -86,7 +99,7 @@ export default function SubscriptionGate({ children, fallback }: SubscriptionGat
           onPress={() => {
             // Navigate to your website's subscription page
             // You can use Linking.openURL() to open the website
-            console.log('Navigate to subscription page');
+            console.log("Navigate to subscription page");
           }}
           style={[styles.button, { backgroundColor: colors.primary }]}
         >
@@ -110,18 +123,18 @@ export default function SubscriptionGate({ children, fallback }: SubscriptionGat
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 24,
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 12,
   },
   message: {
     fontSize: 16,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: 32,
   },
   text: {
@@ -134,12 +147,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     minWidth: 200,
-    alignItems: 'center',
+    alignItems: "center",
   },
   buttonText: {
-    color: '#ffffff',
+    color: "#ffffff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   backButton: {
     paddingVertical: 16,
@@ -147,10 +160,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     minWidth: 200,
-    alignItems: 'center',
+    alignItems: "center",
   },
   backButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

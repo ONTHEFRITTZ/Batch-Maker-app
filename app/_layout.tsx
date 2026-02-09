@@ -12,9 +12,7 @@ Linking.addEventListener('url', (event) => {
   console.log('🔗 GLOBAL deep link listener:', event.url);
 });
 
-// Configure which files Expo Router should ignore
 export const unstable_settings = {
-  // Ensure any route can show the initial URL
   initialRouteName: 'index',
 };
 
@@ -25,19 +23,20 @@ export default function Layout() {
         console.log('🚀 Initializing app...');
         await initializeDatabase();
         console.log('✅ Database initialized');
-        
+
         await initializeReports();
         console.log('✅ Reports initialized');
-        
+
         await syncService.initialize();
         console.log('✅ Sync service initialized');
       } catch (error) {
         console.error('❌ Error initializing app:', error);
       }
     };
+
     initializeApp();
   }, []);
-  
+
   return (
     <ThemeProvider>
       <Stack
@@ -47,69 +46,64 @@ export default function Layout() {
           ),
         }}
       >
-        <Stack.Screen 
-          name="index" 
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen 
-          name="callback" 
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen 
+        <Stack.Screen name="index" options={{ headerShown: false }} />
+        <Stack.Screen name="callback" options={{ headerShown: false }} />
+
+        <Stack.Screen
           name="screens/WorkflowSelectScreen"
           options={{ headerShown: true }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/StepScreen"
           options={{ headerShown: true }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/WorkflowBuilderScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Create Workflow'
+            title: 'Create Workflow',
           }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/RecipeParserScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Import Recipe'
+            title: 'Import Recipe',
           }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/WorkflowEditorScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Edit Workflow'
+            title: 'Edit Workflow',
           }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/ReportsScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Reports'
+            title: 'Reports',
           }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/EnvironmentalReportScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Environmental Report'
+            title: 'Environmental Report',
           }}
         />
-        <Stack.Screen 
+
+        <Stack.Screen
           name="screens/URLImportScreen"
-          options={{ 
+          options={{
             headerShown: true,
-            title: 'Import from URL'
-          }}
-        />
-        <Stack.Screen 
-          name="screens/NetworkScanScreen"
-          options={{ 
-            headerShown: true,
-            title: 'Multi-Device Sync'
+            title: 'Import from URL',
           }}
         />
       </Stack>

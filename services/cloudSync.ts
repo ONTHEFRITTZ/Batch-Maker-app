@@ -1,10 +1,11 @@
 // services/cloudSync.ts
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../app/lib/supabase';
-import { getWorkflows, getBatches } from './database';
-import { getPhotoManifest } from './photoStorage';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "../lib/supabase";
+import { getBatches, getWorkflows } from "./database";
+import { getPhotoManifest } from "./photoStorage";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://your-api.vercel.app';
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL || "https://your-api.vercel.app";
 
 interface SyncResult {
   success: boolean;
@@ -16,21 +17,23 @@ export async function pushToCloud(): Promise<SyncResult> {
   const result: SyncResult = {
     success: true,
     uploaded: 0,
-    errors: []
+    errors: [],
   };
 
   try {
-    console.log('Starting cloud sync...');
+    console.log("Starting cloud sync...");
 
     // Get current session
-    const { data: { session } } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     if (!session) {
-      throw new Error('Not authenticated. Please sign in first.');
+      throw new Error("Not authenticated. Please sign in first.");
     }
 
     const userId = session.user.id;
-    console.log('User ID:', userId);
+    console.log("User ID:", userId);
 
     // Get all local data
     const workflows = await getWorkflows();
@@ -38,17 +41,18 @@ export async function pushToCloud(): Promise<SyncResult> {
     const photoManifest = getPhotoManifest();
     const photos = Object.entries(photoManifest).map(([id, data]) => ({
       id,
-      ...data
+      ...data,
     }));
 
-    console.log(`Found: ${workflows.length} workflows, ${batches.length} batches, ${photos.length} photos`);
+    console.log(
+      `Found: ${workflows.length} workflows, ${batches.length} batches, ${photos.length} photos`,
+    );
 
     // Upload workflows
     for (const workflow of workflows) {
       try {
-        const { error } = await supabase
-          .from('workflows')
-          .upsert({
+        const { error } = await supabase.from("workflows").upsert(
+          {
             id: workflow.id,
             user_id: userId,
             name: workflow.name,
@@ -57,19 +61,21 @@ export async function pushToCloud(): Promise<SyncResult> {
             claimed_by_name: workflow.claimedByName,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'id'
-          });
+          },
+          {
+            onConflict: "id",
+          },
+        );
 
         if (error) {
-          console.error('Workflow upload error:', error);
+          console.error("Workflow upload error:", error);
           result.errors.push(`Workflow ${workflow.name}: ${error.message}`);
         } else {
           result.uploaded++;
           console.log(`✅ Uploaded workflow: ${workflow.name}`);
         }
       } catch (err: any) {
-        console.error('Workflow exception:', err);
+        console.error("Workflow exception:", err);
         result.errors.push(`Workflow ${workflow.name}: ${err.message}`);
       }
     }
@@ -77,9 +83,8 @@ export async function pushToCloud(): Promise<SyncResult> {
     // Upload batches
     for (const batch of batches) {
       try {
-        const { error } = await supabase
-          .from('batches')
-          .upsert({
+        const { error } = await supabase.from("batches").upsert(
+          {
             id: batch.id,
             user_id: userId,
             workflow_id: batch.workflowId,
@@ -90,23 +95,26 @@ export async function pushToCloud(): Promise<SyncResult> {
             current_step_index: batch.currentStepIndex,
             completed_steps: batch.completedSteps,
             active_timers: batch.activeTimers,
-            created_at: typeof batch.createdAt === 'number' 
-              ? new Date(batch.createdAt).toISOString() 
-              : batch.createdAt,
+            created_at:
+              typeof batch.createdAt === "number"
+                ? new Date(batch.createdAt).toISOString()
+                : batch.createdAt,
             updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'id'
-          });
+          },
+          {
+            onConflict: "id",
+          },
+        );
 
         if (error) {
-          console.error('Batch upload error:', error);
+          console.error("Batch upload error:", error);
           result.errors.push(`Batch ${batch.name}: ${error.message}`);
         } else {
           result.uploaded++;
           console.log(`✅ Uploaded batch: ${batch.name}`);
         }
       } catch (err: any) {
-        console.error('Batch exception:', err);
+        console.error("Batch exception:", err);
         result.errors.push(`Batch ${batch.name}: ${err.message}`);
       }
     }
@@ -114,9 +122,8 @@ export async function pushToCloud(): Promise<SyncResult> {
     // Upload photos (metadata only - actual files would need separate upload)
     for (const photo of photos) {
       try {
-        const { error } = await supabase
-          .from('photos')
-          .upsert({
+        const { error } = await supabase.from("photos").upsert(
+          {
             id: photo.id,
             user_id: userId,
             batch_id: photo.batchId,
@@ -124,36 +131,38 @@ export async function pushToCloud(): Promise<SyncResult> {
             step_id: photo.stepId,
             url: photo.uri, // Store local URI for now
             created_at: new Date(photo.createdAt).toISOString(),
-          }, {
-            onConflict: 'id'
-          });
+          },
+          {
+            onConflict: "id",
+          },
+        );
 
         if (error) {
-          console.error('Photo upload error:', error);
+          console.error("Photo upload error:", error);
           result.errors.push(`Photo: ${error.message}`);
         } else {
           result.uploaded++;
           console.log(`✅ Uploaded photo metadata`);
         }
       } catch (err: any) {
-        console.error('Photo exception:', err);
+        console.error("Photo exception:", err);
         result.errors.push(`Photo: ${err.message}`);
       }
     }
 
     // Save last sync time
-    await AsyncStorage.setItem('lastCloudSync', new Date().toISOString());
+    await AsyncStorage.setItem("lastCloudSync", new Date().toISOString());
 
     if (result.errors.length > 0) {
       result.success = false;
-      console.warn('⚠️ Sync completed with errors:', result.errors);
+      console.warn("⚠️ Sync completed with errors:", result.errors);
     } else {
-      console.log('✅ Sync completed successfully!');
+      console.log("✅ Sync completed successfully!");
     }
 
     return result;
   } catch (error: any) {
-    console.error('❌ Push error:', error);
+    console.error("❌ Push error:", error);
     result.success = false;
     result.errors.push(error.message);
     return result;
@@ -162,20 +171,22 @@ export async function pushToCloud(): Promise<SyncResult> {
 
 export async function pullFromCloud(): Promise<void> {
   try {
-    console.log('Pulling data from cloud...');
+    console.log("Pulling data from cloud...");
 
-    const { data: { session } } = await supabase.auth.getSession();
-    
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
     if (!session) {
-      throw new Error('Not authenticated');
+      throw new Error("Not authenticated");
     }
 
-    const lastSync = await AsyncStorage.getItem('lastCloudSync');
-    const url = `${API_URL}/api/sync/pull${lastSync ? `?lastSync=${lastSync}` : ''}`;
+    const lastSync = await AsyncStorage.getItem("lastCloudSync");
+    const url = `${API_URL}/api/sync/pull${lastSync ? `?lastSync=${lastSync}` : ""}`;
 
     const response = await fetch(url, {
       headers: {
-        'Authorization': `Bearer ${session.access_token}`,
+        Authorization: `Bearer ${session.access_token}`,
       },
     });
 
@@ -184,8 +195,8 @@ export async function pullFromCloud(): Promise<void> {
     }
 
     const data = await response.json();
-    
-    console.log('Received from cloud:', {
+
+    console.log("Received from cloud:", {
       workflows: data.workflows?.length || 0,
       batches: data.batches?.length || 0,
       reports: data.reports?.length || 0,
@@ -194,16 +205,16 @@ export async function pullFromCloud(): Promise<void> {
 
     // TODO: Merge data with local database
     // This would require implementing merge logic in database.ts
-    
-    await AsyncStorage.setItem('lastCloudSync', data.synced_at);
-    console.log('✅ Pull completed successfully!');
+
+    await AsyncStorage.setItem("lastCloudSync", data.synced_at);
+    console.log("✅ Pull completed successfully!");
   } catch (error) {
-    console.error('❌ Pull error:', error);
+    console.error("❌ Pull error:", error);
     throw error;
   }
 }
 
 export async function getLastSyncTime(): Promise<Date | null> {
-  const lastSync = await AsyncStorage.getItem('lastCloudSync');
+  const lastSync = await AsyncStorage.getItem("lastCloudSync");
   return lastSync ? new Date(lastSync) : null;
 }

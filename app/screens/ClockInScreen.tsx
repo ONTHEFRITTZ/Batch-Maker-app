@@ -4,9 +4,17 @@
 // React 18/19 compatible version
 // ============================================
 
-import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { supabase } from '../lib/supabase';
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { supabase } from "../../lib/supabase";
 
 interface Location {
   id: string;
@@ -20,7 +28,7 @@ interface NetworkConnection {
   owner_id: string;
   owner_name: string;
   location_name: string;
-  role: 'owner' | 'admin' | 'member';
+  role: "owner" | "admin" | "member";
   require_clock_in: boolean;
   allow_anytime_access: boolean;
 }
@@ -46,7 +54,9 @@ interface ActiveEntry {
 const ClockInScreen: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [networks, setNetworks] = useState<NetworkConnection[]>([]);
-  const [upcomingShifts, setUpcomingShifts] = useState<Record<string, Shift[]>>({});
+  const [upcomingShifts, setUpcomingShifts] = useState<Record<string, Shift[]>>(
+    {},
+  );
   const [activeEntry, setActiveEntry] = useState<ActiveEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [clockingIn, setClockingIn] = useState(false);
@@ -66,7 +76,9 @@ const ClockInScreen: React.FC = () => {
   }, [user]);
 
   async function loadUser() {
-    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const {
+      data: { user: currentUser },
+    } = await supabase.auth.getUser();
     setUser(currentUser);
     setLoading(false);
   }
@@ -77,26 +89,28 @@ const ClockInScreen: React.FC = () => {
     const connections: NetworkConnection[] = [];
 
     const { data: ownedLocations } = await supabase
-      .from('locations')
-      .select('*')
-      .eq('user_id', user.id);
+      .from("locations")
+      .select("*")
+      .eq("user_id", user.id);
 
     const { data: memberRoles } = await supabase
-      .from('network_member_roles')
-      .select(`
+      .from("network_member_roles")
+      .select(
+        `
         *,
         profiles:owner_id (device_name, email)
-      `)
-      .eq('user_id', user.id);
+      `,
+      )
+      .eq("user_id", user.id);
 
     if (ownedLocations) {
       ownedLocations.forEach((loc: Location) => {
         connections.push({
           location_id: loc.id,
           owner_id: user.id,
-          owner_name: 'My Business',
+          owner_name: "My Business",
           location_name: loc.name,
-          role: 'owner',
+          role: "owner",
           require_clock_in: false,
           allow_anytime_access: true,
         });
@@ -106,16 +120,19 @@ const ClockInScreen: React.FC = () => {
     if (memberRoles) {
       for (const r of memberRoles) {
         const { data: locationData } = await supabase
-          .from('locations')
-          .select('id, name, user_id')
-          .eq('user_id', r.owner_id)
+          .from("locations")
+          .select("id, name, user_id")
+          .eq("user_id", r.owner_id)
           .single();
 
         if (locationData) {
           connections.push({
             location_id: locationData.id,
             owner_id: r.owner_id,
-            owner_name: (r.profiles as any)?.device_name || (r.profiles as any)?.email || 'Unknown Business',
+            owner_name:
+              (r.profiles as any)?.device_name ||
+              (r.profiles as any)?.email ||
+              "Unknown Business",
             location_name: locationData.name,
             role: r.role,
             require_clock_in: r.require_clock_in,
@@ -132,10 +149,10 @@ const ClockInScreen: React.FC = () => {
     if (!user) return;
 
     const { data } = await supabase
-      .from('time_entries')
-      .select('*')
-      .eq('user_id', user.id)
-      .is('clock_out', null)
+      .from("time_entries")
+      .select("*")
+      .eq("user_id", user.id)
+      .is("clock_out", null)
       .single();
 
     setActiveEntry(data);
@@ -144,18 +161,20 @@ const ClockInScreen: React.FC = () => {
   async function loadUpcomingShifts() {
     if (!user) return;
 
-    const today = new Date().toISOString().split('T')[0];
-    const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
+    const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split("T")[0];
 
     const { data: shifts } = await supabase
-      .from('shifts')
-      .select('*')
-      .eq('assigned_to', user.id)
-      .eq('status', 'scheduled')
-      .gte('shift_date', today)
-      .lte('shift_date', sevenDaysFromNow)
-      .order('shift_date', { ascending: true })
-      .order('start_time', { ascending: true });
+      .from("shifts")
+      .select("*")
+      .eq("assigned_to", user.id)
+      .eq("status", "scheduled")
+      .gte("shift_date", today)
+      .lte("shift_date", sevenDaysFromNow)
+      .order("shift_date", { ascending: true })
+      .order("start_time", { ascending: true });
 
     if (shifts) {
       const grouped: Record<string, Shift[]> = {};
@@ -171,51 +190,59 @@ const ClockInScreen: React.FC = () => {
     setClockingIn(true);
 
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split("T")[0];
       const { data: todayShifts } = await supabase
-        .from('shifts')
-        .select('*')
-        .eq('assigned_to', user.id)
-        .eq('location_id', locationId)
-        .eq('shift_date', today)
-        .eq('status', 'scheduled');
+        .from("shifts")
+        .select("*")
+        .eq("assigned_to", user.id)
+        .eq("location_id", locationId)
+        .eq("shift_date", today)
+        .eq("status", "scheduled");
 
       if (!todayShifts || todayShifts.length === 0) {
         Alert.alert(
-          'No Shift Scheduled',
-          'You don\'t have a scheduled shift today. Are you sure you want to clock in?',
+          "No Shift Scheduled",
+          "You don't have a scheduled shift today. Are you sure you want to clock in?",
           [
-            { text: 'Cancel', style: 'cancel', onPress: () => setClockingIn(false) },
-            { text: 'Yes, Clock In', onPress: () => performClockIn(locationId) }
-          ]
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => setClockingIn(false),
+            },
+            {
+              text: "Yes, Clock In",
+              onPress: () => performClockIn(locationId),
+            },
+          ],
         );
         return;
       }
 
       await performClockIn(locationId, todayShifts[0].id);
     } catch (err: any) {
-      Alert.alert('Clock In Failed', err.message || 'Unable to clock in at this time');
+      Alert.alert(
+        "Clock In Failed",
+        err.message || "Unable to clock in at this time",
+      );
       setClockingIn(false);
     }
   }
 
   async function performClockIn(locationId: string, shiftId?: string) {
     try {
-      const { error } = await supabase
-        .from('time_entries')
-        .insert({
-          user_id: user.id,
-          location_id: locationId,
-          shift_id: shiftId || null,
-          clock_in: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("time_entries").insert({
+        user_id: user.id,
+        location_id: locationId,
+        shift_id: shiftId || null,
+        clock_in: new Date().toISOString(),
+      });
 
       if (error) throw error;
 
       await loadActiveEntry();
-      Alert.alert('Clocked In', 'You are now on the clock');
+      Alert.alert("Clocked In", "You are now on the clock");
     } catch (err: any) {
-      Alert.alert('Clock In Failed', err.message || 'Unable to clock in');
+      Alert.alert("Clock In Failed", err.message || "Unable to clock in");
     } finally {
       setClockingIn(false);
     }
@@ -226,20 +253,20 @@ const ClockInScreen: React.FC = () => {
 
     try {
       if (!activeEntry) {
-        throw new Error('No active time entry found');
+        throw new Error("No active time entry found");
       }
 
       const { error } = await supabase
-        .from('time_entries')
+        .from("time_entries")
         .update({ clock_out: new Date().toISOString() })
-        .eq('id', activeEntry.id);
+        .eq("id", activeEntry.id);
 
       if (error) throw error;
 
       await loadActiveEntry();
-      Alert.alert('Clocked Out', 'You are now off the clock');
+      Alert.alert("Clocked Out", "You are now off the clock");
     } catch (err: any) {
-      Alert.alert('Clock Out Failed', err.message || 'Unable to clock out');
+      Alert.alert("Clock Out Failed", err.message || "Unable to clock out");
     } finally {
       setClockingIn(false);
     }
@@ -249,25 +276,33 @@ const ClockInScreen: React.FC = () => {
     if (!activeEntry || !activeEntry.shift_id) return;
 
     const { data: shift } = await supabase
-      .from('shifts')
-      .select('end_time')
-      .eq('id', activeEntry.shift_id)
+      .from("shifts")
+      .select("end_time")
+      .eq("id", activeEntry.shift_id)
       .single();
 
     if (!shift) return;
 
     const now = new Date();
-    const shiftEnd = new Date(`${new Date().toISOString().split('T')[0]}T${shift.end_time}`);
-    const thirtyMinutesAfterShift = new Date(shiftEnd.getTime() + 30 * 60 * 1000);
+    const shiftEnd = new Date(
+      `${new Date().toISOString().split("T")[0]}T${shift.end_time}`,
+    );
+    const thirtyMinutesAfterShift = new Date(
+      shiftEnd.getTime() + 30 * 60 * 1000,
+    );
 
     if (now > thirtyMinutesAfterShift) {
       Alert.alert(
-        'Still Working?',
-        'Your shift ended over 30 minutes ago. Are you still working?',
+        "Still Working?",
+        "Your shift ended over 30 minutes ago. Are you still working?",
         [
-          { text: 'Yes, Still Working', style: 'default' },
-          { text: 'Clock Out Now', onPress: handleClockOut, style: 'destructive' },
-        ]
+          { text: "Yes, Still Working", style: "default" },
+          {
+            text: "Clock Out Now",
+            onPress: handleClockOut,
+            style: "destructive",
+          },
+        ],
       );
     }
   }
@@ -283,22 +318,31 @@ const ClockInScreen: React.FC = () => {
   if (!user) {
     return (
       <View style={[styles.container, styles.centered]}>
-        <Text style={styles.emptyText}>Please sign in to view your schedule</Text>
+        <Text style={styles.emptyText}>
+          Please sign in to view your schedule
+        </Text>
       </View>
     );
   }
 
-  const currentNetwork = networks.find(n => n.location_id === activeEntry?.location_id);
+  const currentNetwork = networks.find(
+    (n) => n.location_id === activeEntry?.location_id,
+  );
 
   return (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={styles.container}
+    >
       {activeEntry ? (
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            <View style={[styles.statusDot, { backgroundColor: '#22c55e' }]} />
+            <View style={[styles.statusDot, { backgroundColor: "#22c55e" }]} />
             <Text style={styles.statusTitle}>Clocked In</Text>
           </View>
-          <Text style={styles.statusBusiness}>{currentNetwork?.location_name || 'Unknown'}</Text>
+          <Text style={styles.statusBusiness}>
+            {currentNetwork?.location_name || "Unknown"}
+          </Text>
           <Text style={styles.statusTime}>
             Since {new Date(activeEntry.clock_in).toLocaleTimeString()}
           </Text>
@@ -317,47 +361,63 @@ const ClockInScreen: React.FC = () => {
       ) : (
         <View style={styles.statusCard}>
           <View style={styles.statusHeader}>
-            <View style={[styles.statusDot, { backgroundColor: '#9ca3af' }]} />
+            <View style={[styles.statusDot, { backgroundColor: "#9ca3af" }]} />
             <Text style={styles.statusTitle}>Not Clocked In</Text>
           </View>
-          <Text style={styles.statusSubtitle}>Select a location below to clock in</Text>
+          <Text style={styles.statusSubtitle}>
+            Select a location below to clock in
+          </Text>
         </View>
       )}
 
       {networks.length === 0 ? (
         <View style={styles.card}>
           <Text style={styles.emptyText}>
-            You don't have any locations yet. Create a location or ask your employer for an invite.
+            You don't have any locations yet. Create a location or ask your
+            employer for an invite.
           </Text>
         </View>
       ) : (
         networks.map((network, index) => {
           const shifts = upcomingShifts[network.location_id] || [];
-          const isClockedInHere = activeEntry?.location_id === network.location_id;
+          const isClockedInHere =
+            activeEntry?.location_id === network.location_id;
 
           return (
             <View key={`${network.location_id}-${index}`} style={styles.card}>
               <Text style={styles.cardTitle}>{network.location_name}</Text>
               <Text style={styles.cardSubtitle}>
-                {network.role === 'owner' ? '👑 Owner' : network.role === 'admin' ? '⭐ Admin' : '👤 Team Member'}
-                {network.allow_anytime_access && ' • Access Anytime'}
+                {network.role === "owner"
+                  ? "👑 Owner"
+                  : network.role === "admin"
+                    ? "⭐ Admin"
+                    : "👤 Team Member"}
+                {network.allow_anytime_access && " • Access Anytime"}
               </Text>
 
               {shifts.length > 0 && (
                 <View style={styles.shiftsSection}>
                   <Text style={styles.shiftsSectionTitle}>Upcoming Shifts</Text>
-                  {shifts.slice(0, 3).map(shift => {
-                    const shiftDate = new Date(shift.shift_date + 'T00:00:00');
-                    const isToday = shiftDate.toDateString() === new Date().toDateString();
+                  {shifts.slice(0, 3).map((shift) => {
+                    const shiftDate = new Date(shift.shift_date + "T00:00:00");
+                    const isToday =
+                      shiftDate.toDateString() === new Date().toDateString();
 
                     return (
                       <View key={shift.id} style={styles.shiftRow}>
                         <View>
                           <Text style={styles.shiftDate}>
-                            {isToday ? 'Today' : shiftDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                            {isToday
+                              ? "Today"
+                              : shiftDate.toLocaleDateString("en-US", {
+                                  weekday: "short",
+                                  month: "short",
+                                  day: "numeric",
+                                })}
                           </Text>
                           <Text style={styles.shiftTime}>
-                            {shift.start_time.slice(0, 5)} - {shift.end_time.slice(0, 5)}
+                            {shift.start_time.slice(0, 5)} -{" "}
+                            {shift.end_time.slice(0, 5)}
                             {shift.role && ` • ${shift.role}`}
                           </Text>
                         </View>
@@ -383,7 +443,9 @@ const ClockInScreen: React.FC = () => {
 
               {isClockedInHere && (
                 <View style={styles.activeIndicator}>
-                  <Text style={styles.activeIndicatorText}>✓ Currently Clocked In Here</Text>
+                  <Text style={styles.activeIndicatorText}>
+                    ✓ Currently Clocked In Here
+                  </Text>
                 </View>
               )}
             </View>
@@ -397,30 +459,30 @@ const ClockInScreen: React.FC = () => {
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: "#f3f4f6",
   },
   container: {
     padding: 16,
   },
   centered: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   statusCard: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
   },
   statusHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
     marginBottom: 8,
   },
@@ -431,30 +493,30 @@ const styles = StyleSheet.create({
   },
   statusTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   statusBusiness: {
     fontSize: 15,
-    fontWeight: '500',
-    color: '#3b82f6',
+    fontWeight: "500",
+    color: "#3b82f6",
     marginBottom: 4,
   },
   statusTime: {
     fontSize: 13,
-    color: '#6b7280',
+    color: "#6b7280",
     marginBottom: 16,
   },
   statusSubtitle: {
     fontSize: 13,
-    color: '#6b7280',
+    color: "#6b7280",
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 20,
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 3,
@@ -462,77 +524,77 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 17,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 4,
   },
   cardSubtitle: {
     fontSize: 13,
-    color: '#6b7280',
+    color: "#6b7280",
     marginBottom: 12,
   },
   shiftsSection: {
     marginBottom: 16,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#f3f4f6',
+    borderTopColor: "#f3f4f6",
   },
   shiftsSectionTitle: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#6b7280',
+    fontWeight: "600",
+    color: "#6b7280",
     marginBottom: 8,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   shiftRow: {
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: "#f3f4f6",
   },
   shiftDate: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#1f2937',
+    fontWeight: "500",
+    color: "#1f2937",
     marginBottom: 2,
   },
   shiftTime: {
     fontSize: 12,
-    color: '#6b7280',
+    color: "#6b7280",
   },
   clockButton: {
     height: 48,
     borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   clockInButton: {
-    backgroundColor: '#22c55e',
+    backgroundColor: "#22c55e",
   },
   clockOutButton: {
-    backgroundColor: '#dc2626',
+    backgroundColor: "#dc2626",
   },
   clockButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   activeIndicator: {
     marginTop: 12,
     padding: 8,
-    backgroundColor: '#dcfce7',
+    backgroundColor: "#dcfce7",
     borderRadius: 6,
   },
   activeIndicatorText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#16a34a',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "#16a34a",
+    textAlign: "center",
   },
   emptyText: {
     fontSize: 14,
-    color: '#9ca3af',
-    fontStyle: 'italic',
-    textAlign: 'center',
+    color: "#9ca3af",
+    fontStyle: "italic",
+    textAlign: "center",
     paddingVertical: 32,
   },
 });

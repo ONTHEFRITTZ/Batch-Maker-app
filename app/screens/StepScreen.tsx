@@ -11,7 +11,7 @@ import { createBatchCompletionReport } from "../../services/reports";
 import BatchTimer from '../components/BatchTimer';
 import YouTubeVideo from '../components/YouTubeVideo';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useVoiceCommands, VoiceCommand } from '../hooks/useVoiceCommands';
+import { useVoiceCommands, VoiceCommand } from '../../hooks/useVoiceCommands';
 
 // Haptic feedback helpers
 const haptics = {
@@ -139,18 +139,29 @@ export const StepScreen: FC = () => {
     );
   }
 
-  const extractChecklistItems = (description: string): string[] => {
-    const checklistMatch = description.match(/📋 Checklist:\n([\s\S]*?)(?=\n\n|$)/);
-    if (!checklistMatch) return [];
-    
-    return checklistMatch[1]
-      .split('\n')
-      .map(line => line.replace(/^☐\s*/, '').trim())
-      .filter(Boolean);
-  };
+  const extractChecklistItems = (step: any): string[] => {
+  // Priority 1: Check for separate ingredients array (from URL parser and spreadsheet parser)
+  if (step.ingredients && Array.isArray(step.ingredients) && step.ingredients.length > 0) {
+    return step.ingredients;
+  }
+  
+  // Priority 2: Check for checklistItems array (from recipe text parser)
+  if (step.checklistItems && Array.isArray(step.checklistItems) && step.checklistItems.length > 0) {
+    return step.checklistItems;
+  }
+  
+  // Priority 3: Extract from description (legacy format)
+  const checklistMatch = step.description.match(/Checklist:\n([\s\S]*?)(?=\n\n|$)/);
+  if (!checklistMatch) return [];
+  
+  return checklistMatch[1]
+    .split('\n')
+    .map((line: string)=> line.replace(/^☐\s*/, '').trim())
+    .filter(Boolean);
+};
 
   const extractYouTubeUrl = (description: string): string | null => {
-    const match = description.match(/🎥 Video:\s*(https?:\/\/[^\s]+)/);
+    const match = description.match(/Video:\s*(https?:\/\/[^\s]+)/);
     return match ? match[1] : null;
   };
 
@@ -173,8 +184,8 @@ export const StepScreen: FC = () => {
   
   const displayDescription = applyBatchMultiplier(
     currentStep.description
-      .replace(/📋 Checklist:\n[\s\S]*?(?=\n\n|$)/, '')
-      .replace(/🎥 Video:\s*https?:\/\/[^\s]+/, '')
+      .replace(/Checklist:\n[\s\S]*?(?=\n\n|$)/, '')
+      .replace(/Video:\s*https?:\/\/[^\s]+/, '')
       .trim(),
     batch.batchSizeMultiplier
   );
@@ -311,7 +322,7 @@ export const StepScreen: FC = () => {
       {/* Voice Command Status Banner */}
       {isListening && (
         <View style={[styles.voiceBanner, { backgroundColor: colors.success }]}>
-          <Text style={styles.voiceBannerText}>🎤 Listening...</Text>
+          <Text style={styles.voiceBannerText}>Listening...</Text>
         </View>
       )}
 
@@ -369,7 +380,7 @@ export const StepScreen: FC = () => {
         ]}
       >
         <Text style={styles.voiceButtonText}>
-          {isListening ? '🛑 Stop Voice Commands' : '🎤 Voice Commands'}
+          {isListening ? 'Stop Voice Commands' : 'Voice Commands'}
         </Text>
       </TouchableOpacity>
 
@@ -455,7 +466,7 @@ export const StepScreen: FC = () => {
       {/* Voice Commands Help */}
       <View style={[styles.card, { backgroundColor: colors.surface + '80', shadowColor: colors.shadow }]}>
         <Text style={[styles.sectionTitle, { color: colors.text, fontSize: 14 }]}>
-          💡 Say These Commands:
+          Say These Commands:
         </Text>
         <Text style={[styles.voiceHelpText, { color: colors.textSecondary }]}>
           • "Next step" or "Previous step"{'\n'}

@@ -1,8 +1,8 @@
-import { useEffect } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { supabase } from './lib/supabase';
-import { useTheme } from '../contexts/ThemeContext';
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect } from "react";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../contexts/ThemeContext";
+import { supabase } from "../lib/supabase";
 
 export default function Callback() {
   const router = useRouter();
@@ -12,52 +12,48 @@ export default function Callback() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
-        console.log('🔄 Callback screen loaded');
-        console.log('All params:', params);
+        console.log("🔄 Callback screen loaded");
+        console.log("All params:", params);
 
         // Try multiple ways to get the tokens
-        const access_token = (
-          params.access_token || 
-          params['access_token'] || 
-          params['#access_token']
-        ) as string;
-        
-        const refresh_token = (
-          params.refresh_token || 
-          params['refresh_token'] || 
-          params['#refresh_token']
-        ) as string;
+        const access_token = (params.access_token ||
+          params["access_token"] ||
+          params["#access_token"]) as string;
 
-        console.log('Access token found:', !!access_token);
-        console.log('Refresh token found:', !!refresh_token);
+        const refresh_token = (params.refresh_token ||
+          params["refresh_token"] ||
+          params["#refresh_token"]) as string;
+
+        console.log("Access token found:", !!access_token);
+        console.log("Refresh token found:", !!refresh_token);
 
         if (access_token && refresh_token) {
-          console.log('✅ Setting session with tokens...');
-          
+          console.log("✅ Setting session with tokens...");
+
           const { data, error } = await supabase.auth.setSession({
             access_token,
             refresh_token,
           });
 
           if (error) {
-            console.error('❌ Error setting session:', error);
-            router.replace('/');
+            console.error("❌ Error setting session:", error);
+            router.replace("/");
             return;
           }
 
-          console.log('✅ Session set! User:', data.user?.email);
-          
+          console.log("✅ Session set! User:", data.user?.email);
+
           // Navigate to home
           setTimeout(() => {
-            router.replace('/');
+            router.replace("/");
           }, 500);
         } else {
-          console.log('⚠️ No tokens found, going home');
-          router.replace('/');
+          console.log("⚠️ No tokens found, going home");
+          router.replace("/");
         }
       } catch (error) {
-        console.error('❌ Error in callback:', error);
-        router.replace('/');
+        console.error("❌ Error in callback:", error);
+        router.replace("/");
       }
     };
 
@@ -77,8 +73,8 @@ export default function Callback() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   text: {
     marginTop: 16,

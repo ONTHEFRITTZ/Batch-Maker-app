@@ -286,26 +286,23 @@ export default function RecipeParserScreen() {
         steps: steps.map((step, index) => {
           let description = step.description;
           
-          // Add checklist if ingredients detected
-          if (step.checklistItems.length > 0) {
-            const checklistText = step.checklistItems
-              .map(item => `☐ ${item}`)
-              .join('\n');
-            
-            if (description) {
-              description += '\n\n📋 Checklist:\n' + checklistText;
-            } else {
-              description = '📋 Checklist:\n' + checklistText;
-            }
-          }
+          return {
+           id: `${workflowId}_step_${index + 1}`,
+           title: step.title || `Step ${index + 1}`,
+           description,
+           timerMinutes: step.timerMinutes,
+           completed: false,
+           ingredients: step.checklistItems, // Add ingredients array
+         };
 
           return {
-            id: `${workflowId}_step_${index + 1}`,
-            title: step.title || `Step ${index + 1}`,
-            description,
-            timerMinutes: step.timerMinutes,
-            completed: false,
-          };
+           id: `${workflowId}_step_${index + 1}`,
+           title: step.title || `Step ${index + 1}`,
+           description: step.description, // Keep description clean
+           timerMinutes: step.timerMinutes,
+           completed: false,
+           ingredients: step.checklistItems, // Store as separate array
+         };
         }),
       };
 

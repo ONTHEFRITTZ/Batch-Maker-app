@@ -818,11 +818,6 @@ export default function URLImportScreen() {
     try {
       const workflowId = recipeName.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + Date.now();
       
-      // Build ingredient checklist
-      const checklistText = ingredients.length > 0
-        ? ingredients.map(item => `☐ ${item}`).join('\n')
-        : '';
-
       // Build metadata header
       const metaInfo: string[] = [];
       if (metadata.servings) metaInfo.push(`🍽️ Servings: ${metadata.servings}`);
@@ -834,7 +829,37 @@ export default function URLImportScreen() {
       if (metadata.cuisine) metaInfo.push(`🌍 Cuisine: ${metadata.cuisine}`);
       if (metadata.calories) metaInfo.push(`🔥 Calories: ${metadata.calories}`);
 
-      // Create steps
+      // Function to find which ingredients are mentioned in a step
+      const findIngredientsInStep = (stepText: string): string[] => {
+        const stepLower = stepText.toLowerCase();
+        const mentionedIngredients: string[] = [];
+        
+        ingredients.forEach(ingredient => {
+          // Extract the ingredient name (before the colon if there's an amount)
+          const ingredientParts = ingredient.split(':');
+          const ingredientName = ingredientParts[0].trim().toLowerCase();
+          
+          // Also check for key words in the ingredient (like "flour" in "all-purpose flour")
+          const keyWords = ingredientName.split(/\s+/).filter(word => word.length > 3);
+          
+          // Check if this ingredient or its key words are mentioned in the step
+          const namePattern = new RegExp(`\\b${ingredientName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+          const hasName = namePattern.test(stepLower);
+          
+          const hasKeyWord = keyWords.some(word => {
+            const wordPattern = new RegExp(`\\b${word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+            return wordPattern.test(stepLower);
+          });
+          
+          if (hasName || hasKeyWord) {
+            mentionedIngredients.push(ingredient);
+          }
+        });
+        
+        return mentionedIngredients;
+      };
+
+      // Create steps with proper ingredient checklists
       const workflowSteps = steps.length > 0
         ? steps.map((step, index) => {
             let description = step;
@@ -844,11 +869,6 @@ export default function URLImportScreen() {
               description = metaInfo.join('\n') + '\n\n' + description;
             }
 
-            // Add ingredients to first step
-            if (index === 0 && checklistText) {
-              description += '\n\n📋 Ingredients:\n' + checklistText;
-            }
-
             // Extract timer from step text if present
             let timerMinutes: number | undefined;
             const timeMatch = step.match(/\b(\d+)\s*(?:minute|min)s?\b/i);
@@ -856,21 +876,25 @@ export default function URLImportScreen() {
               timerMinutes = parseInt(timeMatch[1]);
             }
 
+            // Find ingredients mentioned in this step
+            const stepIngredients = findIngredientsInStep(step);
+
             return {
               id: `${workflowId}_step_${index + 1}`,
               title: `Step ${index + 1}`,
               description,
               timerMinutes,
               completed: false,
+              ingredients: stepIngredients,  // Separate checklist array
             };
           })
         : [{
             id: `${workflowId}_step_1`,
             title: 'Ingredients',
-            description: (metaInfo.length > 0 ? metaInfo.join('\n') + '\n\n' : '') +
-                        '📋 Ingredients:\n' + checklistText,
+            description: (metaInfo.length > 0 ? metaInfo.join('\n') + '\n\n' : '') + 'Gather all ingredients',
             timerMinutes: undefined,
             completed: false,
+            ingredients: ingredients,  // All ingredients in the prep step
           }];
 
       const workflow: Workflow = {
@@ -938,6 +962,7 @@ export default function URLImportScreen() {
             • Decodes 100+ HTML entities{'\n'}
             • Extracts embedded timers{'\n'}
             • Gets nutrition info when available{'\n'}
+            • Auto-detects ingredients per step{'\n'}
             • Works with 95%+ of recipe sites
           </Text>
         </View>
