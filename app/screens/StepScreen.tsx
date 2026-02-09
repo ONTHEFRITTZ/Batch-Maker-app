@@ -176,9 +176,10 @@ export const StepScreen: FC = () => {
     });
   };
 
-  const checklistItems = extractChecklistItems(currentStep.description).map(item => 
+  const checklistItems = extractChecklistItems(currentStep).map(item =>
     applyBatchMultiplier(item, batch.batchSizeMultiplier)
   );
+
   
   const youtubeUrl = extractYouTubeUrl(currentStep.description);
   
@@ -278,14 +279,21 @@ export const StepScreen: FC = () => {
     setCheckedItems(newChecked);
   };
 
-  const isSubRecipeLink = (item: string): boolean => {
-    return item.includes('*See') && item.includes('recipe');
+  const isSubRecipeLink = (item: unknown): boolean => {
+    return (
+      typeof item === 'string' &&
+      item.includes('*See') &&
+      item.includes('recipe')
+    );
   };
 
-  const extractSubRecipeName = (item: string): string => {
-    const match = item.match(/\*See (.+?) recipe/);
-    return match ? match[1] : '';
+  const extractSubRecipeName = (item: unknown): string => {
+    if (typeof item !== 'string') return '';
+
+    const match = /\*See (.+?) recipe/.exec(item);
+    return match?.[1] ?? '';
   };
+
 
   const handleSubRecipeClick = (subRecipeName: string) => {
     const subWorkflow = getWorkflows().find(w => 

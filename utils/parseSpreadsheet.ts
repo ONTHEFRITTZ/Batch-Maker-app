@@ -5,7 +5,7 @@ export function parseSpreadsheetV2(uri: string): Step[] {
   const workbook = XLSX.read(uri, { type: "binary" });
   const steps: Step[] = [];
 
-  console.log('🔍 ENHANCED PARSER V2 RUNNING');
+  console.log('ENHANCED PARSER V2 RUNNING');
   console.log('Found sheets:', workbook.SheetNames);
   
   workbook.SheetNames.forEach((sheetName) => {
@@ -14,7 +14,7 @@ export function parseSpreadsheetV2(uri: string): Step[] {
     const sheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json<any>(sheet);
     
-    console.log(`\n📄 Sheet "${sheetName}" has ${rows.length} rows`);
+    console.log(`\nSheet "${sheetName}" has ${rows.length} rows`);
 
     if (rows.length === 0) return;
 
@@ -96,7 +96,7 @@ export function parseSpreadsheetV2(uri: string): Step[] {
       }
     });
     
-    console.log(`✅ Grouped into ${stepGroups.size} steps`);
+    console.log(`Grouped into ${stepGroups.size} steps`);
     stepGroups.forEach((rows, num) => {
       console.log(`   Step ${num}: ${rows.length} row(s)`);
     });
@@ -157,7 +157,7 @@ export function parseSpreadsheetV2(uri: string): Step[] {
         }
       });
 
-      console.log(`   📋 Step ${stepNum} has ${ingredients.length} checklist items`);
+      console.log(`   Step ${stepNum} has ${ingredients.length} checklist items`);
 
       // Build description
       let description = '';
@@ -197,7 +197,7 @@ export function parseSpreadsheetV2(uri: string): Step[] {
         if (description) {
           description += '\n\n';
         }
-        description += '📋 Checklist:\n' + checklistText;
+        description += 'Checklist:\n' + checklistText;
       }
 
       // Timer - handle multiple formats
@@ -270,6 +270,6 @@ export function parseSpreadsheetV2(uri: string): Step[] {
     });
   });
 
-  console.log(`\n🎯 Total steps created: ${steps.length}`);
+  console.log(`\nTotal steps created: ${steps.length}`);
   return steps.sort((a, b) => a.order - b.order);
 }

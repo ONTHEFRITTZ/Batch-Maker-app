@@ -87,7 +87,7 @@ async function callEdgeFunction(recipeText: string): Promise<any> {
     throw new Error('Not authenticated. Please sign in first.');
   }
 
-  console.log('🤖 Calling parse-recipe edge function...');
+  console.log('Calling parse-recipe edge function...');
 
   const { data, error } = await supabase.functions.invoke('parse-recipe', {
     body: { recipeText },
@@ -97,7 +97,7 @@ async function callEdgeFunction(recipeText: string): Promise<any> {
   });
 
   if (error) {
-    console.error('❌ Edge function error:', error);
+    console.error('Edge function error:', error);
     throw new Error(error.message || 'Edge function call failed');
   }
 
@@ -205,7 +205,7 @@ export async function parseRecipe(
       const message = err?.message || 'Something went wrong';
       const errorCode = (err as any).code;
 
-      console.error('❌ Parse attempt failed:', errorCode, message);
+      console.error('Parse attempt failed:', errorCode, message);
 
       // Map server error codes
       if (errorCode === 'RATE_LIMITED') {
@@ -269,7 +269,7 @@ export async function parseRecipe(
 
   // Retry once if allowed and retryable
   if (allowRetry && firstResult.error.retryable) {
-    console.log('🔄 Retrying parse...');
+    console.log('Retrying parse...');
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
     const retryResult = await attemptParse();
@@ -337,14 +337,14 @@ export async function parseAndSaveRecipe(recipeText: string): Promise<{
       .single();
 
     if (insertError) {
-      console.error('❌ Database insert error:', insertError);
+      console.error('Database insert error:', insertError);
       return {
         success: false,
         error: `Failed to save recipe: ${insertError.message}`
       };
     }
 
-    console.log('✅ Recipe saved as workflow:', workflowId);
+    console.log('Recipe saved as workflow:', workflowId);
 
     return {
       success: true,
@@ -352,7 +352,7 @@ export async function parseAndSaveRecipe(recipeText: string): Promise<{
     };
 
   } catch (error: any) {
-    console.error('💥 Error in parseAndSaveRecipe:', error);
+    console.error('Error in parseAndSaveRecipe:', error);
     return {
       success: false,
       error: error.message || 'An unexpected error occurred'
