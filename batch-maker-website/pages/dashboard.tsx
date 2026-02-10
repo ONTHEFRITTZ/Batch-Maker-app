@@ -89,7 +89,7 @@ export default function EnhancedDashboard() {
         schema: 'public',
         table: 'workflows'
       }, (payload) => {
-        console.log('🔄 Workflow changed:', payload);
+        console.log('Workflow changed:', payload);
         fetchWorkflows(user.id);
       })
      .subscribe();
@@ -414,10 +414,10 @@ export default function EnhancedDashboard() {
                 onChange={(e) => setSelectedLocationId(e.target.value)}
                 className="px-4 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="all">📍 All Locations</option>
+                <option value="all">All Locations</option>
                 {locations.map(location => (
                   <option key={location.id} value={location.id}>
-                    📍 {location.name}{location.is_default ? ' (Default)' : ''}
+                    {location.name}{location.is_default ? ' (Default)' : ''}
                   </option>
                 ))}
               </select>

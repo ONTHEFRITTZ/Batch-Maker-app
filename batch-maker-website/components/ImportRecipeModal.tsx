@@ -138,7 +138,7 @@ export default function ImportRecipeModal({
       >
         {/* Header */}
         <div className="p-6 border-b border-gray-200 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">🤖 Import Recipe with AI</h2>
+          <h2 className="text-2xl font-bold text-gray-900">Import Recipe</h2>
           <button
             onClick={handleClose}
             disabled={loading}
@@ -197,10 +197,10 @@ export default function ImportRecipeModal({
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">✨ How it works:</h4>
+                <h4 className="font-medium text-blue-900 mb-2">How it works:</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>1. Paste a recipe URL from any website</li>
-                  <li>2. AI fetches and reads the page</li>
+                  <li>2. App fetches and reads the page</li>
                   <li>3. Recipe is parsed and saved to your workflows</li>
                   <li>4. Ready to use in batches!</li>
                 </ul>
@@ -269,7 +269,7 @@ Instructions:
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">✨ AI will automatically:</h4>
+                <h4 className="font-medium text-blue-900 mb-2">App will automatically:</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• Extract ingredients with amounts and units</li>
                   <li>• Parse steps in the correct order</li>
@@ -338,33 +338,6 @@ Instructions:
                     </p>
                   )}
                 </div>
-              </div>
-            </div>
-          )}
-
-          {/* Example URLs */}
-          {activeTab === 'url' && !loading && (
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-medium mb-3 text-gray-900">Try these examples:</h3>
-              <div className="space-y-2">
-                <button
-                  onClick={() => setUrl('https://www.allrecipes.com/recipe/10813/best-chocolate-chip-cookies/')}
-                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
-                >
-                  → AllRecipes - Best Chocolate Chip Cookies
-                </button>
-                <button
-                  onClick={() => setUrl('https://www.kingarthurbaking.com/recipes/cinnamon-star-bread-recipe')}
-                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
-                >
-                  → King Arthur Baking - Cinnamon Star Bread
-                </button>
-                <button
-                  onClick={() => setUrl('https://www.bonappetit.com/recipe/bas-best-chocolate-chip-cookies')}
-                  className="block w-full text-left text-sm text-purple-600 hover:text-purple-800 hover:underline"
-                >
-                  → Bon Appétit - BA's Best Chocolate Chip Cookies
-                </button>
               </div>
             </div>
           )}

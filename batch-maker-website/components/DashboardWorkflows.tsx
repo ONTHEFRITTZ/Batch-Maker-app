@@ -398,9 +398,9 @@ const { data: freshMembers } = await supabase
                     {session.device_name}
                   </div>
                   <div className="text-xs text-gray-500">
-                    {session.device_name === 'Unclaimed' ? '🔓 Unclaimed' :
-                     session.status === 'working' ? '🔨 Working' :
-                     session.status === 'idle' ? '⏸️ Idle' : '⚫ Offline'}
+                    {session.device_name === 'Unclaimed' ? 'Unclaimed' :
+                     session.status === 'working' ? 'Working' :
+                     session.status === 'idle' ? '⏸Idle' : 'Offline'}
                   </div>
                 </div>
 
@@ -526,7 +526,7 @@ const { data: freshMembers } = await supabase
                               onClick={() => handleClaimBatch(batch.id)}
                               className="px-4 py-2 bg-green-500 text-white rounded-md text-sm font-medium hover:bg-green-600 transition-colors"
                             >
-                              🔒 Claim Batch
+                              Claim Batch
                             </button>
                             {isPremium && (
                               <button
@@ -546,14 +546,14 @@ const { data: freshMembers } = await supabase
                               onClick={() => handleOpenBatch(batch.id)}
                               className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm font-medium hover:bg-blue-600 transition-colors"
                             >
-                              📋 Open Batch
+                              Open Batch
                             </button>
                             {batch.claimed_by === user.id && (
                               <button
                                 onClick={() => handleReleaseBatch(batch.id)}
                                 className="px-4 py-2 bg-yellow-500 text-white rounded-md text-sm font-medium hover:bg-yellow-600 transition-colors"
                               >
-                                🔓 Release
+                                Release
                               </button>
                             )}
                           </>
@@ -562,7 +562,7 @@ const { data: freshMembers } = await supabase
                           onClick={() => handleCancelBatch(batch.id)}
                           className="px-4 py-2 bg-red-500 text-white rounded-md text-sm font-medium hover:bg-red-600 transition-colors"
                         >
-                          ❌ Cancel
+                          Cancel
                         </button>
                       </div>
                     </div>
@@ -583,7 +583,7 @@ const { data: freshMembers } = await supabase
               onClick={() => setImportModalOpen(true)}
               className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition-colors flex items-center gap-2"
             >
-              <span>🤖</span>
+              <span></span>
               Import Recipe
             </button>
             <Link href="/workflows/create" className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors">

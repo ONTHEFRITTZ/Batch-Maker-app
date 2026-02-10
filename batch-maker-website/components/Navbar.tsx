@@ -7,7 +7,7 @@ export default function Navbar() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <img
-            src="/assets/icons/icon.png"
+            src="../assets/icons/icon.png"
             alt="Batch Maker logo"
             className="h-9 w-9"
           />

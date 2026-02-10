@@ -58,15 +58,14 @@ export default function Register() {
   return (
     <>
       <Head>
-        <title>Create Account - Batch Maker</title>
+        <title>Create Account - Batch Ma</title>
       </Head>
 
-      <div className="min-h-screen bg-[#E8E8E8] flex items-center justify-center px-6">
-        <div className="bg-white rounded-3xl shadow-lg p-12 w-full max-w-md">
-          <div className="text-center mb-8">
+      <div className="min-h-screen flex items-center justify-center" style={styles.background}>
+        <div className="max-w-md w-full bg-white p-4 rounded-lg shadow">
+          <div className="text-center mb-4">
             <Link href="/" className="inline-flex items-center gap-2">
-              <img src="/assets/icons/logo.png" alt="Batch Maker" className="h-10 w-10" />
-              <span className="text-xl font-semibold">Batch Maker</span>
+              <img src="/assets/images/batch-maker-alpha.png" alt="Batch Maker" className="h-20 w-30" />
             </Link>
           </div>
 
@@ -167,4 +166,12 @@ export default function Register() {
       </div>
     </>
   )
+}
+
+const styles = {
+  background: {
+    backgroundImage: 'url("/assets/images/1920x1080-horizontal-bg.png")',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  },
 }

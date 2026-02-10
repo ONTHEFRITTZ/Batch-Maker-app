@@ -14,7 +14,7 @@ body {
 
 /* Background image for dashboard */
 .dashboard-bg {
-  background-image: url('/assets/images/1920x1080-horizontal-bg.png');
+  background-image: url('../public/assets/images/1920x1080-horizontal-bg.png');
   background-size: cover;
   background-position: center;
   background-attachment: fixed;
@@ -36,7 +36,7 @@ body {
 
 /* Alias for pages using bakery-bg class */
 .bg-bakery-bg {
-  @apply dashboard-bg;
+  @apply bg-gray-50;
 }
 
 /* Card styles with glassmorphism */
