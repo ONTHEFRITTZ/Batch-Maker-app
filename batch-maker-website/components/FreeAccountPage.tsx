@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { getSupabaseClient } from '../lib/supabase';
 
+
 const supabase = getSupabaseClient();
 
 export default function AccountPage() {
