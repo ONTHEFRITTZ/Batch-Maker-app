@@ -607,7 +607,7 @@ export default function Account() {
 const styles: Record<string, React.CSSProperties> = {
   container: {
     minHeight: '100vh',
-    background: '../assets/1920x1080-horizontal-bg.png',
+    backgroundColor: '#f9fafb',
   },
   header: {
     backgroundColor: '#ffffff',
