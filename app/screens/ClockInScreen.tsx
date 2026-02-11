@@ -1,7 +1,6 @@
 // ============================================
 // FILE: app/screens/ClockInScreen.tsx
-// Mobile clock-in/out with shift schedule view
-// React 18/19 compatible version
+// FIXED: Added owner_id to time_entries insert
 // ============================================
 
 import React, { useEffect, useState } from "react";
@@ -54,9 +53,7 @@ interface ActiveEntry {
 const ClockInScreen: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [networks, setNetworks] = useState<NetworkConnection[]>([]);
-  const [upcomingShifts, setUpcomingShifts] = useState<Record<string, Shift[]>>(
-    {},
-  );
+  const [upcomingShifts, setUpcomingShifts] = useState<Record<string, Shift[]>>({});
   const [activeEntry, setActiveEntry] = useState<ActiveEntry | null>(null);
   const [loading, setLoading] = useState(true);
   const [clockingIn, setClockingIn] = useState(false);
@@ -230,8 +227,20 @@ const ClockInScreen: React.FC = () => {
 
   async function performClockIn(locationId: string, shiftId?: string) {
     try {
+      // ✅ FIXED: Get the owner_id for this location
+      const { data: locationData, error: locationError } = await supabase
+        .from('locations')
+        .select('user_id')
+        .eq('id', locationId)
+        .single();
+
+      if (locationError || !locationData) {
+        throw new Error('Could not find location owner');
+      }
+
       const { error } = await supabase.from("time_entries").insert({
         user_id: user.id,
+        owner_id: locationData.user_id,  // ✅ FIXED: Added owner_id
         location_id: locationId,
         shift_id: shiftId || null,
         clock_in: new Date().toISOString(),
@@ -459,7 +468,7 @@ const ClockInScreen: React.FC = () => {
 const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
-    backgroundColor: "#f3f4f6",
+    background: '../assets/images/hero-phone-med.png',
   },
   container: {
     padding: 16,

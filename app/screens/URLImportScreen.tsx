@@ -11,17 +11,19 @@ import { supabase } from '../../services/supabaseClient';
 export default function URLImportScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  
+
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleImport = async () => {
-    if (!url.trim()) {
+    const trimmedUrl = url.trim();
+
+    if (!trimmedUrl) {
       Alert.alert('Error', 'Please enter a URL');
       return;
     }
 
-    if (!url.match(/^https?:\/\/.+/i)) {
+    if (!trimmedUrl.match(/^https?:\/\/.+/i)) {
       Alert.alert('Error', 'Please enter a valid URL starting with http:// or https://');
       return;
     }
@@ -29,38 +31,48 @@ export default function URLImportScreen() {
     setLoading(true);
 
     try {
-      console.log('🔍 Calling parse-recipe-url edge function...');
-      
-      // Get auth session
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !sessionData.session) {
         Alert.alert('Error', 'You must be signed in to import recipes');
-        setLoading(false);
         return;
       }
 
+      const accessToken = sessionData.session.access_token;
+
+      console.log('Calling parse-recipe-url...');
+
       const { data, error } = await supabase.functions.invoke('parse-recipe-url', {
-        body: { url }
+        body: { url: trimmedUrl },
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       });
 
       if (error) {
-        console.error('❌ Edge function error:', error);
+        console.error('Edge function error:', error);
         throw new Error(error.message || 'Failed to parse recipe');
       }
 
+      if (!data) {
+        throw new Error('No response from server');
+      }
+
       if (data.error) {
-        console.error('❌ Parser error:', data.error);
-        
+        console.error('Parser returned error:', data.error, data.message);
+
         if (data.error === 'NOT_A_RECIPE') {
           Alert.alert('Not a Recipe', 'This URL does not appear to contain a recipe.');
+        } else if (data.error === 'UNAUTHORIZED') {
+          Alert.alert('Session Expired', 'Please sign out and sign back in.');
         } else if (data.error === 'API_FAILURE') {
           Alert.alert('Error', 'AI service error. Please try again.');
+        } else if (data.error === 'FETCH_FAILED') {
+          Alert.alert('Error', 'Could not load that page. Check the URL and try again.');
         } else {
           Alert.alert('Error', data.message || 'Failed to parse recipe');
         }
-        
-        setLoading(false);
+
         return;
       }
 
@@ -70,19 +82,19 @@ export default function URLImportScreen() {
 
       const workflow = data.workflow;
 
-      console.log('✅ Workflow received:', workflow.name);
-      console.log('📊 Steps:', workflow.steps.length);
+      console.log('Workflow received:', workflow.name);
+      console.log('Steps:', workflow.steps.length);
 
-      // Create workflow in local database
-      const workflowId = workflow.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + Date.now();
+      const workflowId =
+        workflow.name.toLowerCase().replace(/[^a-z0-9]+/g, '_') + '_' + Date.now();
 
       const workflowSteps = workflow.steps.map((step: any, index: number) => ({
-        id: `${workflowId}_step_${step.order || index}`,
-        title: step.title || `Step ${step.order || index}`,
+        id: `${workflowId}_step_${step.order ?? index}`,
+        title: step.title || `Step ${step.order ?? index + 1}`,
         description: step.description || '',
-        timerMinutes: step.duration_minutes || undefined,
+        timerMinutes: step.duration_minutes ?? undefined,
         completed: false,
-        ingredients: step.ingredients || [],
+        ingredients: step.ingredients_for_step || [],
       }));
 
       const finalWorkflow: Workflow = {
@@ -93,23 +105,29 @@ export default function URLImportScreen() {
 
       await addWorkflow(finalWorkflow);
 
+      // step 0 is "Prepare Ingredients" — don't count it in the user-facing total
+      const recipeStepCount = workflow.steps.filter((s: any) => s.order !== 0).length;
+
       Alert.alert(
-        '✅ Success!',
-        `Imported "${workflow.name}"\n\n📊 ${workflow.steps.length} steps (including prep)`,
+        'Recipe Imported',
+        `"${workflow.name}" (${recipeStepCount} steps)`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
 
     } catch (error: any) {
-      console.error('❌ Import error:', error);
-      
-      let errorMessage = 'Failed to import recipe';
-      if (error.message.includes('Network')) {
-        errorMessage = 'Network error. Check your internet connection.';
+      console.error('Import error:', error);
+
+      let message = 'Failed to import recipe';
+
+      if (error.message?.toLowerCase().includes('network')) {
+        message = 'Network error. Check your internet connection.';
+      } else if (error.message?.includes('401')) {
+        message = 'Authentication error. Please sign in again.';
       } else if (error.message) {
-        errorMessage = error.message;
+        message = error.message;
       }
-      
-      Alert.alert('Error', errorMessage);
+
+      Alert.alert('Error', message);
     } finally {
       setLoading(false);
     }
@@ -120,20 +138,23 @@ export default function URLImportScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: colors.text }]}>Import from URL</Text>
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-          Paste any recipe URL and our AI will extract everything automatically
+          Paste any recipe URL and AI will extract the steps automatically.
         </Text>
 
         <View style={styles.section}>
-          <Text style={[styles.label, { color: colors.text }]}>Recipe URL *</Text>
+          <Text style={[styles.label, { color: colors.text }]}>Recipe URL</Text>
           <TextInput
-            style={[styles.input, {
-              backgroundColor: colors.surface,
-              color: colors.text,
-              borderColor: colors.border
-            }]}
+            style={[
+              styles.input,
+              {
+                backgroundColor: colors.surface,
+                color: colors.text,
+                borderColor: colors.border,
+              },
+            ]}
             value={url}
             onChangeText={setUrl}
-            placeholder="https://www.allrecipes.com/recipe/..."
+            placeholder="https://www.example.com/recipe/..."
             placeholderTextColor={colors.textSecondary}
             autoCapitalize="none"
             autoCorrect={false}
@@ -142,39 +163,28 @@ export default function URLImportScreen() {
           />
         </View>
 
-        <View style={[styles.infoBox, {
-          backgroundColor: colors.primary + '15',
-          borderColor: colors.primary
-        }]}>
-          <Text style={[styles.infoTitle, { color: colors.primary }]}>🤖 AI-Powered Import</Text>
+        <View
+          style={[
+            styles.infoBox,
+            { backgroundColor: colors.primary + '15', borderColor: colors.primary },
+          ]}
+        >
+          <Text style={[styles.infoTitle, { color: colors.primary }]}>How it works</Text>
           <Text style={[styles.infoText, { color: colors.text }]}>
-            • Uses Claude AI to parse any recipe format{'\n'}
-            • Auto-creates "Prepare Ingredients" step{'\n'}
-            • Matches ingredients to each step{'\n'}
-            • Extracts timers and temperatures{'\n'}
-            • Works with 95%+ of recipe sites
-          </Text>
-        </View>
-
-        <View style={[styles.exampleBox, {
-          backgroundColor: colors.surfaceVariant,
-          borderColor: colors.border
-        }]}>
-          <Text style={[styles.exampleTitle, { color: colors.text }]}>✅ Tested Sites:</Text>
-          <Text style={[styles.exampleText, { color: colors.textSecondary }]}>
-            AllRecipes • Food Network • Bon Appétit{'\n'}
-            Serious Eats • RecipeTin Eats • Budget Bytes{'\n'}
-            Sally's Baking • NYT Cooking • Tasty{'\n'}
-            Delish • Epicurious • Simply Recipes{'\n'}
-            Most WordPress/Blogger recipe sites
+            Step 1 is always "Prepare Ingredients".{'\n'}
+            Each step lists only what you need for that step.{'\n'}
+            Timers are extracted for baking and resting steps.{'\n'}
+            Works with most major recipe sites.
           </Text>
         </View>
       </ScrollView>
 
-      <View style={[styles.actionBar, {
-        backgroundColor: colors.surface,
-        borderTopColor: colors.border
-      }]}>
+      <View
+        style={[
+          styles.actionBar,
+          { backgroundColor: colors.surface, borderTopColor: colors.border },
+        ]}
+      >
         <TouchableOpacity
           style={[styles.cancelButton, { backgroundColor: colors.surfaceVariant }]}
           onPress={() => router.back()}
@@ -184,12 +194,16 @@ export default function URLImportScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.importButton, { backgroundColor: colors.primary }, loading && { opacity: 0.6 }]}
+          style={[
+            styles.importButton,
+            { backgroundColor: colors.primary },
+            loading && styles.disabledButton,
+          ]}
           onPress={handleImport}
           disabled={loading}
         >
           {loading ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={styles.loadingRow}>
               <ActivityIndicator color="white" size="small" />
               <Text style={styles.importButtonText}>Importing...</Text>
             </View>
@@ -205,7 +219,7 @@ export default function URLImportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollView: { flex: 1 },
-  content: { padding: 20, paddingBottom: 100 },
+  content: { padding: 20, paddingBottom: 120 },
   title: { fontSize: 28, fontWeight: 'bold', marginBottom: 8 },
   subtitle: { fontSize: 16, marginBottom: 32, lineHeight: 22 },
   section: { marginBottom: 24 },
@@ -214,12 +228,20 @@ const styles = StyleSheet.create({
   infoBox: { borderWidth: 2, borderRadius: 12, padding: 16, marginBottom: 16 },
   infoTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 8 },
   infoText: { fontSize: 14, lineHeight: 22 },
-  exampleBox: { borderWidth: 1, borderRadius: 12, padding: 16, marginBottom: 16 },
-  exampleTitle: { fontSize: 14, fontWeight: '600', marginBottom: 8 },
-  exampleText: { fontSize: 13, lineHeight: 20 },
-  actionBar: { position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row', padding: 16, gap: 12, borderTopWidth: 1 },
+  actionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    padding: 16,
+    gap: 12,
+    borderTopWidth: 1,
+  },
   cancelButton: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
   cancelButtonText: { fontSize: 16, fontWeight: '600' },
   importButton: { flex: 1, padding: 16, borderRadius: 12, alignItems: 'center' },
   importButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
+  disabledButton: { opacity: 0.6 },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });

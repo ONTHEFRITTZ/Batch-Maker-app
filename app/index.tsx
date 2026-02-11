@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  ImageBackground,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -28,13 +29,13 @@ export default function HomeScreen() {
   // Auto-sync function
   const performSync = async (silent: boolean = true) => {
     try {
-      console.log("🔄 Auto-syncing...");
+      console.log("Auto-syncing...");
       const result = await pushToCloud();
 
       if (result.success) {
         setLastSync(new Date());
         if (!silent && result.uploaded > 0) {
-          console.log(`✅ Synced ${result.uploaded} items`);
+          console.log(`Synced ${result.uploaded} items`);
         }
       } else if (!silent) {
         Alert.alert("Sync Issues", result.errors.join("\n"));
@@ -70,7 +71,7 @@ export default function HomeScreen() {
     });
 
     const handleDeepLink = (event: { url: string }) => {
-      console.log("🔗 handleDeepLink FIRED!");
+      console.log("handleDeepLink FIRED!");
       const url = event.url;
       console.log("Deep link received:", url);
 
@@ -83,7 +84,7 @@ export default function HomeScreen() {
         const refresh_token = params.get("refresh_token");
 
         if (access_token && refresh_token) {
-          console.log("✅ Tokens found in deep link, setting session...");
+          console.log("Tokens found in deep link, setting session...");
           supabase.auth
             .setSession({
               access_token,
@@ -91,17 +92,17 @@ export default function HomeScreen() {
             })
             .then(({ data, error }) => {
               if (error) {
-                console.error("❌ Error setting session:", error);
+                console.error("Error setting session:", error);
               } else {
                 console.log(
-                  "✅ Session set successfully! User:",
+                  "Session set successfully! User:",
                   data.user?.email,
                 );
                 router.replace("/");
               }
             })
             .catch((error) => {
-              console.error("❌ Error setting session:", error);
+              console.error("Error setting session:", error);
             });
         }
       }
@@ -156,7 +157,7 @@ export default function HomeScreen() {
         );
 
         if (result.type === "success" && result.url) {
-          console.log("✅ OAuth successful");
+          console.log("OAuth successful");
         } else if (result.type === "cancel") {
           Alert.alert("Cancelled", "Sign in was cancelled");
         }
@@ -267,6 +268,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
+    backgroundImage: require("../assets/images/hero-phone-med.png"),
   },
   topBar: {
     position: "absolute",

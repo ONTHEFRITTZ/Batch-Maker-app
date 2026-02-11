@@ -9,7 +9,7 @@ import { ThemeProvider } from '../contexts/ThemeContext';
 
 // Global deep link listener
 Linking.addEventListener('url', (event) => {
-  console.log('🔗 GLOBAL deep link listener:', event.url);
+  console.log('GLOBAL deep link listener:', event.url);
 });
 
 export const unstable_settings = {
@@ -20,17 +20,17 @@ export default function Layout() {
   useEffect(() => {
     const initializeApp = async () => {
       try {
-        console.log('🚀 Initializing app...');
+        console.log('Initializing app...');
         await initializeDatabase();
-        console.log('✅ Database initialized');
+        console.log('Database initialized');
 
         await initializeReports();
-        console.log('✅ Reports initialized');
+        console.log('Reports initialized');
 
         await syncService.initialize();
-        console.log('✅ Sync service initialized');
+        console.log('Sync service initialized');
       } catch (error) {
-        console.error('❌ Error initializing app:', error);
+        console.error('Error initializing app:', error);
       }
     };
 

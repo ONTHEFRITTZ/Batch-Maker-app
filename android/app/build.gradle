@@ -179,4 +179,7 @@ dependencies {
     } else {
         implementation jscFlavor
     }
+    // Explicit voice dependency
+    implementation project(':react-native-voice_voice')
+
 }

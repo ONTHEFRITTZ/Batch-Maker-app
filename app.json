@@ -19,6 +19,7 @@
       "backgroundColor": "#ffffff"
     },
     "android": {
+      "permissions": ["android.permission.RECORD_AUDIO"],
       "package": "com.batchmaker.app",
       "adaptiveIcon": {
         "foregroundImage": "./app/assets/images/adaptive-icon.png",

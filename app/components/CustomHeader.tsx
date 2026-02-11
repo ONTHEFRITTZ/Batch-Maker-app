@@ -33,7 +33,7 @@ export default function CustomHeader({ canGoBack }: { canGoBack?: boolean }) {
       <Image 
         source={logo}
         style={styles.logo}
-        resizeMode="cover"
+        resizeMode="contain"
       />
     </View>
   );
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   logo: {
-    height: 90,
-    width: 220,
+    height: 60,
+    width: 146,
   },
 });

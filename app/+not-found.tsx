@@ -27,14 +27,14 @@ export default function NotFound() {
             const refresh_token = parsedUrl.queryParams.refresh_token as string;
 
             if (access_token && refresh_token) {
-              console.log("✅ Found tokens in not-found, setting session...");
+              console.log("Found tokens in not-found, setting session...");
 
               await supabase.auth.setSession({
                 access_token,
                 refresh_token,
               });
 
-              console.log("✅ Session set, redirecting to home...");
+              console.log("Session set, redirecting to home...");
               setTimeout(() => {
                 router.replace("/");
               }, 500);

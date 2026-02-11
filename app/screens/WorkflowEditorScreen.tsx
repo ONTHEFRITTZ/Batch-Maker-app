@@ -280,7 +280,7 @@ export default function WorkflowEditorScreen() {
                   borderColor: colors.border 
                 }]}
                 value={step.title}
-                onChangeText={(text) => updateStep(stepIndex, 'title', text)}
+                onChangeText={(text: string) => updateStep(stepIndex, 'title', text)}
                 placeholder="e.g., Mix dry ingredients"
                 placeholderTextColor={colors.textSecondary}
                 editable={!isSaving}
@@ -296,7 +296,7 @@ export default function WorkflowEditorScreen() {
                   borderColor: colors.border 
                 }]}
                 value={step.description}
-                onChangeText={(text) => updateStep(stepIndex, 'description', text)}
+                onChangeText={(text: string) => updateStep(stepIndex, 'description', text)}
                 placeholder="Add detailed instructions here..."
                 placeholderTextColor={colors.textSecondary}
                 multiline
@@ -330,7 +330,7 @@ export default function WorkflowEditorScreen() {
                             borderColor: colors.border 
                           }]}
                           value={item.text}
-                          onChangeText={(text) => updateChecklistItem(stepIndex, itemIndex, text)}
+                          onChangeText={(text: string) => updateChecklistItem(stepIndex, itemIndex, text)}
                           placeholder="e.g., Flour: 500g"
                           placeholderTextColor={colors.textSecondary}
                           editable={!isSaving}
@@ -358,7 +358,7 @@ export default function WorkflowEditorScreen() {
                   borderColor: colors.border 
                 }]}
                 value={step.timerMinutes?.toString() || ''}
-                onChangeText={(text) => {
+                onChangeText={(text: string) => {
                   const num = parseInt(text);
                   updateStep(stepIndex, 'timerMinutes', isNaN(num) ? undefined : num);
                 }}
@@ -379,7 +379,7 @@ export default function WorkflowEditorScreen() {
                   borderColor: colors.border 
                 }]}
                 value={step.youtubeUrl || ''}
-                onChangeText={(text) => updateStep(stepIndex, 'youtubeUrl', text)}
+                onChangeText={(text: string) => updateStep(stepIndex, 'youtubeUrl', text)}
                 placeholder="https://youtube.com/watch?v=..."
                 placeholderTextColor={colors.textSecondary}
                 autoCapitalize="none"
