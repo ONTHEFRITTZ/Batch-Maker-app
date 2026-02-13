@@ -59,7 +59,9 @@
               "batchmaker"
             ]
           }
-        ]
+        ],
+        "NSMicrophoneUsageDescription": "This app uses the microphone for voice commands.",
+        "NSSpeechRecognitionUsageDescription": "This app uses speech recognition for hands-free operation."
       }
     },
     "web": {
@@ -68,7 +70,7 @@
     "plugins": [
       "expo-router",
       [
-        "@react-native-voice/voice",
+        "expo-speech-recognition",
         {
           "microphonePermission": "Allow Batch Maker to use your microphone for voice commands.",
           "speechRecognitionPermission": "Allow Batch Maker to recognize your voice commands."

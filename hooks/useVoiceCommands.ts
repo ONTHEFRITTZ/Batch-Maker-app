@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import Voice, {
-  SpeechResultsEvent,
-  SpeechErrorEvent,
-} from '@react-native-voice/voice';
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from 'expo-speech-recognition';
 
 /* -------------------------------------------------------------------------- */
 /*                                TYPES                                       */
 /* -------------------------------------------------------------------------- */
-
-type SpeechPartialResults = {
-  value?: string[];
-};
 
 export interface VoiceCommand {
   command: string;
@@ -60,7 +56,7 @@ export function useVoiceCommands(
   const commandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const safeRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // NEW
+  const safeRestartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   /* ----------------------------- HELPERS ---------------------------------- */
 
@@ -126,13 +122,13 @@ export function useVoiceCommands(
 
     restartLockRef.current = true;
 
-    clearRef(safeRestartTimeoutRef); // FIXED: Clear previous timeout
+    clearRef(safeRestartTimeoutRef);
     safeRestartTimeoutRef.current = setTimeout(async () => {
       try {
-        await Voice.destroy();
+        await ExpoSpeechRecognitionModule.stop();
         GLOBAL_MIC_ACTIVE = false;
         await startListening();
-      } catch (err) { // FIXED: Catch errors
+      } catch (err) {
         console.error('Failed to restart listening:', err);
         GLOBAL_MIC_ACTIVE = false;
       } finally {
@@ -171,82 +167,93 @@ export function useVoiceCommands(
 
   /* --------------------------- VOICE EVENTS -------------------------------- */
 
-  useEffect(() => {
-    Voice.onSpeechStart = () => {
-      setIsListening(true);
-      isListeningRef.current = true;
-      setError(null);
-      if (Platform.OS === 'android') startWatchdog();
-    };
+  // Listen for speech start
+  useSpeechRecognitionEvent('start', () => {
+    setIsListening(true);
+    isListeningRef.current = true;
+    setError(null);
+    if (Platform.OS === 'android') startWatchdog();
+  });
 
-    Voice.onSpeechEnd = () => {
-      setIsListening(false);
-      isListeningRef.current = false;
-      stopWatchdog();
+  // Listen for speech end
+  useSpeechRecognitionEvent('end', () => {
+    setIsListening(false);
+    isListeningRef.current = false;
+    stopWatchdog();
 
-      if (continuousListening && !isAwakeRef.current) {
-        clearRef(restartTimeoutRef);
-        restartTimeoutRef.current = setTimeout(
-          safeRestartListening,
-          1000
+    if (continuousListening && !isAwakeRef.current) {
+      clearRef(restartTimeoutRef);
+      restartTimeoutRef.current = setTimeout(
+        safeRestartListening,
+        1000
+      );
+    }
+  });
+
+  // Listen for results
+  useSpeechRecognitionEvent('result', (event) => {
+    if (!event.results || event.results.length === 0) return;
+    
+    const transcripts = event.results.map(r => r.transcript);
+    if (transcripts.length === 0) return;
+
+    const spoken = normalize(transcripts[0]);
+
+    // Check for partial results (real-time feedback)
+    if (!event.isFinal) {
+      setRecognizedText(spoken);
+      return;
+    }
+
+    // Process final results
+    if (!isAwakeRef.current && containsWakeWord(spoken)) {
+      setIsAwake(true);
+      isAwakeRef.current = true;
+      setRecognizedText('Listening…');
+
+      clearRef(commandTimeoutRef);
+
+      const remainder = spoken
+        .replace(normalize(wakeWord), '')
+        .trim();
+
+      if (remainder) processCommand(remainder);
+      else {
+        commandTimeoutRef.current = setTimeout(
+          () => resetAwake(true),
+          commandTimeout
         );
       }
-    };
+      return;
+    }
 
-    Voice.onSpeechPartialResults = (e: SpeechPartialResults) => {
-      if (e.value?.length) {
-        setRecognizedText(normalize(e.value[0]));
-      }
-    };
+    if (isAwakeRef.current) processCommand(spoken);
+  });
 
-    Voice.onSpeechResults = (e: SpeechResultsEvent) => {
-      if (!e.value?.length) return;
-      const spoken = normalize(e.value[0]);
+  // Listen for errors
+  useSpeechRecognitionEvent('error', (event) => {
+    setError(event.error || 'Speech error');
+    setIsListening(false);
+    isListeningRef.current = false;
+    GLOBAL_MIC_ACTIVE = false;
+    stopWatchdog();
+    if (continuousListening && !isAwakeRef.current) {
+      safeRestartListening(1500);
+    }
+  });
 
-      if (!isAwakeRef.current && containsWakeWord(spoken)) {
-        setIsAwake(true);
-        isAwakeRef.current = true;
-        setRecognizedText('Listening…');
+  /* ---------------------------- CLEANUP ------------------------------------ */
 
-        clearRef(commandTimeoutRef);
-
-        const remainder = spoken
-          .replace(normalize(wakeWord), '')
-          .trim();
-
-        if (remainder) processCommand(remainder);
-        else {
-          commandTimeoutRef.current = setTimeout(
-            () => resetAwake(true),
-            commandTimeout
-          );
-        }
-        return;
-      }
-
-      if (isAwakeRef.current) processCommand(spoken);
-    };
-
-    Voice.onSpeechError = (e: SpeechErrorEvent) => {
-      setError(e.error?.message || 'Speech error');
-      setIsListening(false); // FIXED: Update state
-      isListeningRef.current = false;
-      GLOBAL_MIC_ACTIVE = false; // FIXED: Reset global flag
-      stopWatchdog();
-      if (continuousListening && !isAwakeRef.current) {
-        safeRestartListening(1500);
-      }
-    };
-
+  useEffect(() => {
     return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
+      ExpoSpeechRecognitionModule.stop();
       stopWatchdog();
       clearRef(commandTimeoutRef);
       clearRef(restartTimeoutRef);
-      clearRef(safeRestartTimeoutRef); // FIXED: Clear all timeouts
+      clearRef(safeRestartTimeoutRef);
       GLOBAL_MIC_ACTIVE = false;
     };
-  }, [commands, continuousListening, commandTimeout, confidenceThreshold, wakeWord]); // FIXED: Add missing deps
+  }, []);
 
   /* ---------------------------- APP STATE ---------------------------------- */
 
@@ -267,7 +274,7 @@ export function useVoiceCommands(
     });
 
     return () => sub.remove();
-  }, [continuousListening]); // Already correct
+  }, [continuousListening]);
 
   /* ---------------------------- CONTROLS ---------------------------------- */
 
@@ -275,9 +282,26 @@ export function useVoiceCommands(
     if (isListeningRef.current || GLOBAL_MIC_ACTIVE) return;
 
     try {
+      // Request permissions first
+      const { status, granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      
+      if (!granted) {
+        setError('Microphone permission denied');
+        return;
+      }
+
       GLOBAL_MIC_ACTIVE = true;
-      await Voice.start('en-US');
-    } catch (err) { // FIXED: Better error handling
+      
+      await ExpoSpeechRecognitionModule.start({
+        lang: 'en-US',
+        interimResults: true,
+        maxAlternatives: 1,
+        continuous: continuousListening,
+        requiresOnDeviceRecognition: false,
+        addsPunctuation: false,
+        contextualStrings: [wakeWord, ...commands.map(c => c.command)],
+      });
+    } catch (err) {
       console.error('Failed to start listening:', err);
       GLOBAL_MIC_ACTIVE = false;
       setError('Failed to start voice recognition');
@@ -288,15 +312,15 @@ export function useVoiceCommands(
   const stopListening = async () => {
     clearRef(commandTimeoutRef);
     clearRef(restartTimeoutRef);
-    clearRef(safeRestartTimeoutRef); // FIXED: Clear all timeouts
+    clearRef(safeRestartTimeoutRef);
     stopWatchdog();
 
     setIsAwake(false);
     isAwakeRef.current = false;
-    setIsListening(false); // FIXED: Update state
+    setIsListening(false);
 
     try {
-      await Voice.stop();
+      await ExpoSpeechRecognitionModule.stop();
     } catch (err) {
       console.error('Failed to stop listening:', err);
     } finally {
