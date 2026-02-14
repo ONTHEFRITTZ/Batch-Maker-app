@@ -2,7 +2,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "../lib/supabase";
 import { getBatches, getWorkflows } from "./database";
-import { getPhotoManifest } from "./photoStorage";
 
 const API_URL =
   process.env.EXPO_PUBLIC_API_URL || "https://your-api.vercel.app";
@@ -38,14 +37,9 @@ export async function pushToCloud(): Promise<SyncResult> {
     // Get all local data
     const workflows = await getWorkflows();
     const batches = await getBatches();
-    const photoManifest = getPhotoManifest();
-    const photos = Object.entries(photoManifest).map(([id, data]) => ({
-      id,
-      ...data,
-    }));
-
+  
     console.log(
-      `Found: ${workflows.length} workflows, ${batches.length} batches, ${photos.length} photos`,
+      `Found: ${workflows.length} workflows, ${batches.length} batches`,
     );
 
     // Upload workflows
@@ -119,37 +113,6 @@ export async function pushToCloud(): Promise<SyncResult> {
       }
     }
 
-    // Upload photos (metadata only - actual files would need separate upload)
-    for (const photo of photos) {
-      try {
-        const { error } = await supabase.from("photos").upsert(
-          {
-            id: photo.id,
-            user_id: userId,
-            batch_id: photo.batchId,
-            workflow_id: photo.workflowId,
-            step_id: photo.stepId,
-            url: photo.uri, // Store local URI for now
-            created_at: new Date(photo.createdAt).toISOString(),
-          },
-          {
-            onConflict: "id",
-          },
-        );
-
-        if (error) {
-          console.error("Photo upload error:", error);
-          result.errors.push(`Photo: ${error.message}`);
-        } else {
-          result.uploaded++;
-          console.log(`✅ Uploaded photo metadata`);
-        }
-      } catch (err: any) {
-        console.error("Photo exception:", err);
-        result.errors.push(`Photo: ${err.message}`);
-      }
-    }
-
     // Save last sync time
     await AsyncStorage.setItem("lastCloudSync", new Date().toISOString());
 
@@ -200,7 +163,6 @@ export async function pullFromCloud(): Promise<void> {
       workflows: data.workflows?.length || 0,
       batches: data.batches?.length || 0,
       reports: data.reports?.length || 0,
-      photos: data.photos?.length || 0,
     });
 
     // TODO: Merge data with local database
