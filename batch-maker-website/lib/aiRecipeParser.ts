@@ -1,15 +1,12 @@
 /**
  * aiRecipeParser.ts
  * Location: batch-maker-website/lib/aiRecipeParser.ts
+ * FIXED: Trimmed tokens, proper header spacing
  */
 
 import { getSupabaseClient } from '../lib/supabase';
 
 const supabase = getSupabaseClient();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
 
 export interface ParsedIngredient {
   name: string;
@@ -65,20 +62,10 @@ export interface SaveRecipeResult {
   message?: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONNECTIVITY CHECK
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function hasInternet(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
   return true;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RESPONSE PARSING
-// Edge function returns ingredients as string[] e.g. ["flour: 2 cups"]
-// This converts them to ParsedIngredient objects
-// ─────────────────────────────────────────────────────────────────────────────
 
 function parseIngredientString(raw: string): ParsedIngredient {
   const colonIndex = raw.indexOf(':');
@@ -106,17 +93,12 @@ function parseWorkflowResponse(data: any): ParsedRecipe {
     throw new Error('Incomplete recipe data in server response');
   }
 
-  // Full ingredient list from the top-level ingredients array.
-  // Edge function returns these as strings: "flour: 2 cups"
   const rawIngredients: string[] = Array.isArray(workflow.ingredients)
     ? workflow.ingredients
     : [];
 
   const ingredients: ParsedIngredient[] = rawIngredients.map(parseIngredientString);
 
-  // Steps come in already ordered with step 0 = "Prepare Ingredients".
-  // step 0's ingredients_for_step is the full ingredient list as a checklist.
-  // steps 1-N each have only their own ingredients_for_step.
   const steps: ParsedStep[] = workflow.steps.map((s: any, i: number) => ({
     order: s.order ?? i,
     title: s.title ?? (s.order === 0 ? 'Prepare Ingredients' : `Step ${i}`),
@@ -125,7 +107,6 @@ function parseWorkflowResponse(data: any): ParsedRecipe {
     ingredients_for_step: Array.isArray(s.ingredients_for_step) ? s.ingredients_for_step : [],
   }));
 
-  // Only sum durations for actual recipe steps, not step 0
   const totalEstimatedMinutes = steps.reduce(
     (sum, s) => (s.order === 0 ? sum : sum + (s.duration_minutes ?? 0)),
     0
@@ -141,33 +122,36 @@ function parseWorkflowResponse(data: any): ParsedRecipe {
   };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EDGE FUNCTION CALLERS
-// ─────────────────────────────────────────────────────────────────────────────
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-async function getAccessToken(): Promise<string> {
-  const { data: { session }, error } = await supabase.auth.getSession();
+async function callParseTextEdgeFunction(recipeText: string): Promise<any> {
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-  if (error || !session?.access_token) {
+  if (sessionError || !session?.access_token) {
     throw Object.assign(new Error('Not authenticated. Please sign in first.'), {
       code: 'UNAUTHORIZED',
     });
   }
 
-  return session.access_token;
-}
+  const token = session.access_token.trim();
 
-async function callParseTextEdgeFunction(recipeText: string): Promise<any> {
-  const token = await getAccessToken();
-
-  const { data, error } = await supabase.functions.invoke('parse-recipe', {
-    body: { recipeText },
-    headers: { Authorization: `Bearer ${token}` },
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/parse-recipe`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ recipeText }),
   });
 
-  if (error) {
-    throw new Error(error.message || 'Edge function call failed');
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
+
+  const data = await response.json();
 
   if (data?.error) {
     throw Object.assign(new Error(data.message || 'Server error'), { code: data.error });
@@ -177,16 +161,32 @@ async function callParseTextEdgeFunction(recipeText: string): Promise<any> {
 }
 
 async function callParseUrlEdgeFunction(url: string): Promise<any> {
-  const token = await getAccessToken();
+  const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-  const { data, error } = await supabase.functions.invoke('parse-recipe-url', {
-    body: { url },
-    headers: { Authorization: `Bearer ${token}` },
+  if (sessionError || !session?.access_token) {
+    throw Object.assign(new Error('Not authenticated. Please sign in first.'), {
+      code: 'UNAUTHORIZED',
+    });
+  }
+
+  const token = session.access_token.trim();
+
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/parse-recipe-url`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ url }),
   });
 
-  if (error) {
-    throw new Error(error.message || 'Edge function call failed');
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`HTTP ${response.status}: ${errorText}`);
   }
+
+  const data = await response.json();
 
   if (data?.error) {
     throw Object.assign(new Error(data.message || 'Server error'), { code: data.error });
@@ -194,10 +194,6 @@ async function callParseUrlEdgeFunction(url: string): Promise<any> {
 
   return data;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ERROR MAPPER
-// ─────────────────────────────────────────────────────────────────────────────
 
 function mapError(err: any, context: 'text' | 'url'): ParserError {
   const message: string = err?.message ?? 'Something went wrong';
@@ -242,10 +238,6 @@ function mapError(err: any, context: 'text' | 'url'): ParserError {
     retryable: true,
   };
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PARSE FROM TEXT
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function parseRecipe(
   recipeText: string,
@@ -293,10 +285,6 @@ export async function parseRecipe(
 
   return first;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PARSE FROM URL
-// ─────────────────────────────────────────────────────────────────────────────
 
 export async function parseRecipeFromUrl(
   url: string,
@@ -354,10 +342,6 @@ export async function parseRecipeFromUrl(
   return first;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SAVE FROM TEXT
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function saveRecipeFromText(
   recipeText: string,
   locationId?: string
@@ -377,10 +361,6 @@ export async function saveRecipeFromText(
   return saveWorkflow(succeeded.data, locationId);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SAVE FROM URL
-// ─────────────────────────────────────────────────────────────────────────────
-
 export async function saveRecipeFromUrl(
   url: string,
   locationId?: string
@@ -399,10 +379,6 @@ export async function saveRecipeFromUrl(
   const succeeded = parseResult as { success: true; data: ParsedRecipe };
   return saveWorkflow(succeeded.data, locationId, url);
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED SAVE LOGIC
-// ─────────────────────────────────────────────────────────────────────────────
 
 async function saveWorkflow(
   parsed: ParsedRecipe,
@@ -460,10 +436,6 @@ async function saveWorkflow(
     };
   }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LEGACY HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
 
 export function toWorkflowInsert(parsed: ParsedRecipe, userId: string, locationId?: string) {
   return {

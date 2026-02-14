@@ -100,10 +100,11 @@ export default function CreateWorkflow() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+    <main className="min-h-screen flex items-center justify-center" style={styles.background}>
+    <div className="min-h-screen bg-gray-50 py-8 px-4 rounded-lg shadow">
+      <div className="max-w-5xl mx-auto">
         <div className="mb-6 flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900">Create New Workflow</h1>
+          <h1 className="text-3xl pr-10 font-bold text-gray-900">Create New Workflow</h1>
           <Link href="/dashboard" className="text-blue-500 hover:text-blue-600">
             ← Back to Dashboard
           </Link>
@@ -220,6 +221,15 @@ export default function CreateWorkflow() {
           </button>
         </div>
       </div>
-    </div>
+     </div>
+    </main>
   );
+}
+
+const styles = {
+  background: {
+    backgroundImage: 'url("/assets/images/1920x1080-horizontal-bg.png")',
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+  },
 }

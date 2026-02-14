@@ -463,7 +463,7 @@ export default function EnhancedDashboard() {
       </header>
 
       {/* Navigation Tabs - z-40 */}
-      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200 glass-card sticky top-[72px] z-40">
+      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200 glass-card sticky top-[72px] z-40 rounded-b-lg position-fixed">
         <div className="flex gap-2">
           <button
             className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${

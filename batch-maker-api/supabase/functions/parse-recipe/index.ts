@@ -1,9 +1,8 @@
 // @ts-nocheck
 
-
 /**
  * Supabase Edge Function: parse-recipe
- * FIXED: Always creates Step 0 "Prepare Ingredients" + numbered cooking steps
+ * FIXED: Proper authentication + Always creates Step 0 "Prepare Ingredients"
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -133,21 +132,15 @@ serve(async (req) => {
       );
     }
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'UNAUTHORIZED', message: 'Authentication required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
+    // ✅ FIXED: Use ANON_KEY to properly validate user JWTs
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
     
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
+      global: { headers: { Authorization: req.headers.get('Authorization')! } },
     });
 
+    // Now this will properly validate the user's JWT
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
@@ -156,6 +149,8 @@ serve(async (req) => {
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('✅ Authenticated user:', user.id);
 
     const { recipeText } = await req.json();
 

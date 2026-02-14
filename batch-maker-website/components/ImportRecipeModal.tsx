@@ -157,7 +157,7 @@ export default function ImportRecipeModal({
               disabled={loading}
               className={`px-6 py-3 font-medium transition-colors ${
                 activeTab === 'url'
-                  ? 'border-b-2 border-purple-600 text-purple-600'
+                  ? 'border-b-2 border-amber-600 text-amber-600'
                   : 'text-gray-600 hover:text-gray-900'
               } disabled:opacity-50`}
             >
@@ -168,7 +168,7 @@ export default function ImportRecipeModal({
               disabled={loading}
               className={`px-6 py-3 font-medium transition-colors ${
                 activeTab === 'text'
-                  ? 'border-b-2 border-purple-600 text-purple-600'
+                  ? 'border-b-2 border-amber-600 text-amber-600'
                   : 'text-gray-600 hover:text-gray-900'
               } disabled:opacity-50`}
             >
@@ -189,7 +189,7 @@ export default function ImportRecipeModal({
                   onChange={(e) => setUrl(e.target.value)}
                   placeholder="https://example.com/chocolate-chip-cookies"
                   disabled={loading}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:bg-gray-100"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-gray-100"
                 />
                 <p className="text-sm text-gray-500 mt-2">
                   Paste a link to any recipe from the web. Our AI will extract the ingredients and steps automatically.
@@ -209,7 +209,7 @@ export default function ImportRecipeModal({
               <button
                 onClick={handleUrlImport}
                 disabled={loading || !url.trim()}
-                className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-amber-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-amber-700 transition-colors flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>
@@ -261,7 +261,7 @@ Instructions:
 7. Bake 10-12 minutes"
                   disabled={loading}
                   rows={14}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm disabled:bg-gray-100"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono text-sm disabled:bg-gray-100"
                 />
                 <p className="text-sm text-gray-500 mt-2">
                   Paste a recipe from anywhere - email, notes, screenshot text, or just type it in.
@@ -281,7 +281,7 @@ Instructions:
               <button
                 onClick={handleTextImport}
                 disabled={loading || !text.trim()}
-                className="w-full bg-purple-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                className="w-full bg-amber-600 text-white py-3 rounded-lg font-medium disabled:bg-gray-400 hover:bg-amber-700 transition-colors flex items-center justify-center gap-2"
               >
                 {loading ? (
                   <>

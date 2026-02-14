@@ -581,7 +581,7 @@ const { data: freshMembers } = await supabase
           <div className="flex gap-2">
             <button
               onClick={() => setImportModalOpen(true)}
-              className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors flex items-center gap-2"
             >
               <span></span>
               Import Recipe
