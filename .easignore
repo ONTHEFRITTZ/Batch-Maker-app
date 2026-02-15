@@ -1,0 +1,15 @@
+node_modules/**/*
+.expo/**/*
+.git/**/*
+android/build/**/*
+android/app/build/**/*
+android/.gradle/**/*
+*.apk
+*.aab
+*.log
+.vscode/**/*
+.idea/**/*
+*.keystore
+*.jks
+TempProject/**/*
+temp-rn-fix/**/*

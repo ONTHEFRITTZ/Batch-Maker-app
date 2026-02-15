@@ -253,7 +253,7 @@ export const WorkflowSelectScreen: FC = () => {
   }, []);
 
   const loadData = async () => {
-    const allWorkflows = getWorkflows();
+    const allWorkflows = await getWorkflows();
     setWorkflows(allWorkflows);
     setBatches(getBatches());
     
@@ -270,9 +270,8 @@ export const WorkflowSelectScreen: FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!showMyWorkflows) {
-      setDisplayedWorkflows(workflows);
-    }
+    // Always show all workflows - the tab only filters batches
+    setDisplayedWorkflows(workflows);
   }, [showMyWorkflows, workflows, claimedStatus]);
 
   // CRITICAL FIX: Filter batches based on tab
@@ -297,13 +296,13 @@ export const WorkflowSelectScreen: FC = () => {
     setShowNewBatchModal(false);
     setSelectedWorkflow(null);
     setBatchSizeMultiplier(1);
-    loadData();
+    await loadData();
   };
 
   const handleDuplicateBatch = async (batchId: string) => {
     await duplicateBatch(batchId);
     setContextMenuBatch(null);
-    loadData();
+    await loadData();
   };
 
   const handleDeleteBatch = async (batchId: string) => {
@@ -321,7 +320,7 @@ export const WorkflowSelectScreen: FC = () => {
             onPress: async () => {
               await deleteBatch(batchId);
               setContextMenuBatch(null);
-              loadData();
+              await loadData();
             }
           }
         ]
@@ -329,7 +328,7 @@ export const WorkflowSelectScreen: FC = () => {
     } else {
       await deleteBatch(batchId);
       setContextMenuBatch(null);
-      loadData();
+      await loadData();
     }
   };
 
@@ -338,7 +337,7 @@ export const WorkflowSelectScreen: FC = () => {
       await renameBatch(batchId, renameText.trim());
       setRenamingBatch(null);
       setRenameText("");
-      loadData();
+      await loadData();
     }
   };
 
@@ -658,7 +657,6 @@ const styles = StyleSheet.create({
   emptyState: { padding: 40, alignItems: 'center' },
   emptyText: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
   emptySubtext: { fontSize: 14, textAlign: 'center' },
-  // FIXED: Remove zIndex from container
   batchContainer: { marginBottom: 12 },
   batchCard: { borderRadius: 12, padding: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, borderWidth: 1 },
   batchHeader: { marginBottom: 8 },
@@ -669,19 +667,18 @@ const styles = StyleSheet.create({
   batchTimer: { fontSize: 16, fontWeight: '600' },
   timerCount: { fontSize: 12, marginTop: 4, fontStyle: 'italic' },
   renameInput: { fontSize: 18, fontWeight: '700', borderBottomWidth: 2, paddingVertical: 4 },
-  // FIXED: Massively increased elevation and zIndex
   contextMenu: { 
     position: 'absolute', 
     top: 0, 
     right: 0, 
     left: 0, 
     borderRadius: 12, 
-    elevation: 999,  // Changed from 10 to 999
+    elevation: 999,
     shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 8 },  // Increased shadow
-    shadowOpacity: 0.5,  // Increased opacity
-    shadowRadius: 12,  // Increased radius
-    zIndex: 99999,  // Changed from 9999 to 99999
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    zIndex: 99999,
     borderWidth: 2 
   },
   contextMenuItem: { padding: 16, borderBottomWidth: 1 },
