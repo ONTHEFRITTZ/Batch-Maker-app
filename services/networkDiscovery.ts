@@ -39,8 +39,7 @@ class NetworkDiscoveryService {
   private connectedHost: NetworkHost | null = null;
   private deviceListeners: Set<(devices: DiscoveredDevice[]) => void> = new Set();
   private hostListeners: Set<(hosts: NetworkHost[]) => void> = new Set();
-  private discoveryInterval: NodeJS.Timeout | null = null;
-
+private discoveryInterval: ReturnType<typeof setInterval> | null = null;
   /**
    * Initialize the network discovery service
    */

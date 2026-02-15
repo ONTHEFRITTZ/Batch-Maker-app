@@ -87,19 +87,24 @@ export const StepScreen: FC = () => {
   }, [batchId]);
 
   useEffect(() => {
-    if (!batchId) return;
-    
-    const b = getBatch(batchId);
-    
-    if (b) {
-      setBatch(b);
-      setCurrentStepIndex(b.currentStepIndex);
+    const loadBatchData = async () => {
+      if (!batchId) return;
       
-      const wf = getWorkflows().find(w => w.id === b.workflowId);
-      if (wf) {
-        setWorkflow(wf);
+      const b = getBatch(batchId);
+      
+      if (b) {
+        setBatch(b);
+        setCurrentStepIndex(b.currentStepIndex);
+        
+        const allWorkflows = await getWorkflows();
+        const wf = allWorkflows.find(w => w.id === b.workflowId);
+        if (wf) {
+          setWorkflow(wf);
+        }
       }
-    }
+    };
+    
+    loadBatchData();
   }, [batchId, currentStepIndex]);
 
   if (!batch || !workflow) {
@@ -289,8 +294,9 @@ export const StepScreen: FC = () => {
     return match?.[1] ?? '';
   };
 
-  const handleSubRecipeClick = (subRecipeName: string) => {
-    const subWorkflow = getWorkflows().find(w => 
+  const handleSubRecipeClick = async (subRecipeName: string) => {
+    const allWorkflows = await getWorkflows();
+    const subWorkflow = allWorkflows.find(w => 
       w.name.toLowerCase().includes(subRecipeName.toLowerCase())
     );
     

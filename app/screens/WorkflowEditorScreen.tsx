@@ -30,9 +30,9 @@ export default function WorkflowEditorScreen() {
     loadWorkflow();
   }, [workflowId]);
 
-  const loadWorkflow = () => {
-    const workflows = getWorkflows();
-    const workflow = workflows.find(w => w.id === workflowId);
+  const loadWorkflow = async () => {
+    const workflows = await getWorkflows();
+    const workflow = workflows.find((w: Workflow) => w.id === workflowId);
     
     if (!workflow) {
       Alert.alert('Error', 'Workflow not found');
@@ -43,7 +43,7 @@ export default function WorkflowEditorScreen() {
     setWorkflowName(workflow.name);
     
     // Parse steps and extract all metadata
-    const parsedSteps: StepWithExtras[] = workflow.steps.map(step => {
+    const parsedSteps: StepWithExtras[] = workflow.steps.map((step: Step) => {
       let description = step.description;
       let checklistItems: ChecklistItem[] = [];
       let youtubeUrl: string | undefined;
@@ -53,10 +53,10 @@ export default function WorkflowEditorScreen() {
       if (checklistMatch) {
         const items = checklistMatch[1]
           .split('\n')
-          .map(line => line.replace(/^☐\s*/, '').trim())
+          .map((line: string) => line.replace(/^☐\s*/, '').trim())
           .filter(Boolean);
         
-        checklistItems = items.map(text => ({ text }));
+        checklistItems = items.map((text: string) => ({ text }));
         description = description.replace(/📋 Checklist:\n[\s\S]*?(?=\n\n|$)/, '').trim();
       }
 
@@ -185,8 +185,8 @@ export default function WorkflowEditorScreen() {
       };
 
       // Update the workflow in the list
-      const allWorkflows = getWorkflows();
-      const updatedWorkflows = allWorkflows.map(w => 
+      const allWorkflows = await getWorkflows();
+      const updatedWorkflows = allWorkflows.map((w: Workflow) => 
         w.id === workflowId ? updatedWorkflow : w
       );
       

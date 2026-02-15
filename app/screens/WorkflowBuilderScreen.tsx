@@ -135,9 +135,11 @@ export default function WorkflowBuilderScreen() {
         steps: processedSteps,
       };
 
-      const existingCount = getWorkflows().length;
+      const existingWorkflows = await getWorkflows();
+      const existingCount = existingWorkflows.length;
       await addWorkflow(newWorkflow);
-      const newCount = getWorkflows().length;
+      const updatedWorkflows = await getWorkflows();
+      const newCount = updatedWorkflows.length;
 
       if (newCount === existingCount) {
         Alert.alert('Error', 'Failed to save workflow');
@@ -145,7 +147,7 @@ export default function WorkflowBuilderScreen() {
         return;
       }
 
-      const savedWorkflow = getWorkflows().find(w => w.id === workflowId);
+      const savedWorkflow = updatedWorkflows.find((w: Workflow) => w.id === workflowId);
       if (!savedWorkflow) {
         Alert.alert('Error', 'Failed to save workflow');
         setIsSaving(false);

@@ -34,7 +34,7 @@ export default function SettingsModal({ visible, onClose, onWorkflowsUpdated }: 
   }, [visible]);
 
   const loadData = async () => {
-    const wfs = getWorkflows();
+    const wfs = await getWorkflows();
     setWorkflowsList(wfs);
     const name = await getDeviceName();
     setDeviceNameState(name);
@@ -166,7 +166,7 @@ export default function SettingsModal({ visible, onClose, onWorkflowsUpdated }: 
         return;
       }
 
-      const existingWorkflows = getWorkflows();
+      const existingWorkflows = await getWorkflows();
       await setWorkflows([...existingWorkflows, ...newWorkflows]);
       
       setShowImportModal(false);
@@ -209,7 +209,7 @@ export default function SettingsModal({ visible, onClose, onWorkflowsUpdated }: 
           style: 'destructive',
           onPress: async () => {
             const updatedWorkflows = workflows.filter(
-              wf => !selectedForRemoval.has(wf.id)
+              (wf: Workflow) => !selectedForRemoval.has(wf.id)
             );
             await setWorkflows(updatedWorkflows);
             
@@ -420,7 +420,7 @@ export default function SettingsModal({ visible, onClose, onWorkflowsUpdated }: 
             </View>
 
             <ScrollView style={styles.removeScrollView}>
-              {workflows.map(workflow => (
+              {workflows.map((workflow: Workflow) => (
                 <TouchableOpacity
                   key={workflow.id}
                   style={[styles.workflowItem, { borderBottomColor: colors.border }]}
