@@ -1,9 +1,8 @@
 import { useState } from 'react';
-import type { DashboardProps } from '../lib/dashboard-types';
+import type { DashboardProps, InventoryItem } from '../lib/dashboard-types';
 import { getSupabaseClient } from '../lib/supabase';
 
 const supabase = getSupabaseClient();
-
 
 export default function Inventory({
   user,
@@ -14,9 +13,13 @@ export default function Inventory({
   fetchInventoryTransactions,
   fetchShoppingList,
 }: DashboardProps) {
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
   const [addInventoryModalOpen, setAddInventoryModalOpen] = useState(false);
-  const [inventoryTransactionModalOpen, setInventoryTransactionModalOpen] = useState(false);
+  const [bulkTransactionModalOpen, setBulkTransactionModalOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState<'add' | 'use'>('use');
   const [addShoppingItemModalOpen, setAddShoppingItemModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [inventoryFormData, setInventoryFormData] = useState({
     name: '',
@@ -29,9 +32,7 @@ export default function Inventory({
     notes: '',
   });
 
-  const [transactionFormData, setTransactionFormData] = useState({
-    item_id: '',
-    type: 'use' as 'add' | 'use' | 'adjust' | 'waste',
+  const [bulkTransactionData, setBulkTransactionData] = useState({
     quantity: 0,
     cost: 0,
     notes: '',
@@ -54,6 +55,38 @@ export default function Inventory({
   const totalInventoryValue = inventoryItems.reduce((sum, item) => 
     sum + (item.quantity * (item.cost_per_unit || 0)), 0
   );
+
+  const filteredItems = inventoryItems.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.supplier?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const toggleItemSelection = (itemId: string) => {
+    const newSelection = new Set(selectedItems);
+    if (newSelection.has(itemId)) {
+      newSelection.delete(itemId);
+    } else {
+      newSelection.add(itemId);
+    }
+    setSelectedItems(newSelection);
+  };
+
+  const selectAll = () => {
+    if (selectedItems.size === filteredItems.length) {
+      setSelectedItems(new Set());
+    } else {
+      setSelectedItems(new Set(filteredItems.map(item => item.id)));
+    }
+  };
+
+  const getStockStatus = (item: InventoryItem) => {
+    if (!item.low_stock_threshold) return { label: 'OK', color: 'bg-gray-100 text-gray-600' };
+    if (item.quantity === 0) return { label: 'Out', color: 'bg-red-100 text-red-700' };
+    if (item.quantity <= item.low_stock_threshold * 0.5) return { label: 'Critical', color: 'bg-red-100 text-red-700' };
+    if (item.quantity <= item.low_stock_threshold) return { label: 'Low', color: 'bg-yellow-100 text-yellow-700' };
+    return { label: 'OK', color: 'bg-green-100 text-green-700' };
+  };
 
   async function handleAddInventoryItem() {
     if (!inventoryFormData.name || inventoryFormData.quantity <= 0) {
@@ -84,55 +117,82 @@ export default function Inventory({
     }
   }
 
-  async function handleInventoryTransaction() {
-    if (!transactionFormData.item_id || transactionFormData.quantity <= 0) {
-      alert('Please fill in required fields');
+  async function handleUpdateInventoryItem() {
+    if (!editingItem) return;
+
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          name: editingItem.name,
+          quantity: editingItem.quantity,
+          unit: editingItem.unit,
+          low_stock_threshold: editingItem.low_stock_threshold,
+          cost_per_unit: editingItem.cost_per_unit,
+          supplier: editingItem.supplier,
+          category: editingItem.category,
+          notes: editingItem.notes,
+          last_updated: new Date().toISOString(),
+        })
+        .eq('id', editingItem.id);
+
+      if (error) throw error;
+
+      await fetchInventoryItems();
+      setEditingItem(null);
+      alert('Item updated successfully!');
+    } catch (error) {
+      console.error('Error updating item:', error);
+      alert('Failed to update item');
+    }
+  }
+
+  async function handleBulkTransaction() {
+    if (selectedItems.size === 0 || bulkTransactionData.quantity <= 0) {
+      alert('Please select items and enter quantity');
       return;
     }
 
     try {
-      const item = inventoryItems.find(i => i.id === transactionFormData.item_id);
-      if (!item) throw new Error('Item not found');
+      for (const itemId of Array.from(selectedItems)) {
+        const item = inventoryItems.find(i => i.id === itemId);
+        if (!item) continue;
 
-      let newQuantity = item.quantity;
-      if (transactionFormData.type === 'use' || transactionFormData.type === 'waste') {
-        newQuantity -= transactionFormData.quantity;
-      } else if (transactionFormData.type === 'add') {
-        newQuantity += transactionFormData.quantity;
-      } else {
-        newQuantity = transactionFormData.quantity;
+        let newQuantity = item.quantity;
+        if (transactionType === 'use') {
+          newQuantity -= bulkTransactionData.quantity;
+        } else {
+          newQuantity += bulkTransactionData.quantity;
+        }
+
+        // Insert transaction
+        await supabase.from('inventory_transactions').insert({
+          user_id: user.id,
+          item_id: itemId,
+          type: transactionType,
+          quantity: bulkTransactionData.quantity,
+          cost: bulkTransactionData.cost || null,
+          notes: bulkTransactionData.notes,
+          created_by: user.email,
+          created_at: new Date().toISOString(),
+        });
+
+        // Update item quantity
+        await supabase
+          .from('inventory_items')
+          .update({ 
+            quantity: Math.max(0, newQuantity),
+            last_updated: new Date().toISOString()
+          })
+          .eq('id', itemId);
       }
-
-      // Insert transaction
-      const { error: transError } = await supabase.from('inventory_transactions').insert({
-        user_id: user.id,
-        item_id: transactionFormData.item_id,
-        type: transactionFormData.type,
-        quantity: transactionFormData.quantity,
-        cost: transactionFormData.cost || null,
-        notes: transactionFormData.notes,
-        created_by: user.email,
-        created_at: new Date().toISOString(),
-      });
-
-      if (transError) throw transError;
-
-      // Update item quantity
-      const { error: updateError } = await supabase
-        .from('inventory_items')
-        .update({ 
-          quantity: newQuantity,
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', transactionFormData.item_id);
-
-      if (updateError) throw updateError;
 
       await fetchInventoryItems();
       await fetchInventoryTransactions();
-      setInventoryTransactionModalOpen(false);
-      setTransactionFormData({ item_id: '', type: 'use', quantity: 0, cost: 0, notes: '' });
-      alert('Transaction recorded successfully!');
+      setBulkTransactionModalOpen(false);
+      setSelectedItems(new Set());
+      setBulkTransactionData({ quantity: 0, cost: 0, notes: '' });
+      alert(`Transaction recorded for ${selectedItems.size} item(s)`);
     } catch (error) {
       console.error('Error recording transaction:', error);
       alert('Failed to record transaction');
@@ -171,7 +231,6 @@ export default function Inventory({
 
   async function updateShoppingItemStatus(id: string, status: 'pending' | 'ordered' | 'received') {
     try {
-      // Update shopping list status
       const { error: updateError } = await supabase
         .from('shopping_list')
         .update({ status, updated_at: new Date().toISOString() })
@@ -179,24 +238,18 @@ export default function Inventory({
 
       if (updateError) throw updateError;
 
-      // If marking as received, add to inventory
       if (status === 'received') {
         const shoppingItem = shoppingList.find(item => item.id === id);
-        if (!shoppingItem) {
-          alert('Shopping item not found');
-          return;
-        }
+        if (!shoppingItem) return;
 
-        // Check if item already exists in inventory (case-insensitive match)
         const existingItem = inventoryItems.find(
           item => item.name.toLowerCase() === shoppingItem.item_name.toLowerCase()
         );
 
         if (existingItem) {
-          // Update existing inventory item
           const newQuantity = existingItem.quantity + shoppingItem.quantity;
           
-          const { error: inventoryError } = await supabase
+          await supabase
             .from('inventory_items')
             .update({ 
               quantity: newQuantity,
@@ -204,24 +257,18 @@ export default function Inventory({
             })
             .eq('id', existingItem.id);
 
-          if (inventoryError) throw inventoryError;
-
-          // Record transaction
           await supabase.from('inventory_transactions').insert({
             user_id: user.id,
             item_id: existingItem.id,
             type: 'add',
             quantity: shoppingItem.quantity,
             cost: shoppingItem.estimated_cost || null,
-            notes: `Added from order list${shoppingItem.notes ? ': ' + shoppingItem.notes : ''}`,
+            notes: `Added from order list`,
             created_by: user.email,
             created_at: new Date().toISOString(),
           });
-
-          alert(`✅ Added ${shoppingItem.quantity} ${shoppingItem.unit} to existing inventory: ${existingItem.name}`);
         } else {
-          // Create new inventory item
-          const { data: newItem, error: createError } = await supabase
+          const { data: newItem } = await supabase
             .from('inventory_items')
             .insert({
               user_id: user.id,
@@ -241,9 +288,6 @@ export default function Inventory({
             .select()
             .single();
 
-          if (createError) throw createError;
-
-          // Record transaction for new item
           if (newItem) {
             await supabase.from('inventory_transactions').insert({
               user_id: user.id,
@@ -256,11 +300,8 @@ export default function Inventory({
               created_at: new Date().toISOString(),
             });
           }
-
-          alert(`✅ Created new inventory item: ${shoppingItem.item_name} (${shoppingItem.quantity} ${shoppingItem.unit})`);
         }
 
-        // Refresh inventory data
         await fetchInventoryItems();
         await fetchInventoryTransactions();
       }
@@ -274,19 +315,22 @@ export default function Inventory({
 
   return (
     <>
+      {/* Inventory Management */}
       <div className="bg-white/90 rounded-xl p-6 mb-6 shadow-sm">
         <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
           <h2 className="text-xl font-semibold text-gray-900">Inventory Management</h2>
-          <div className="flex gap-3">
-            <button onClick={() => setInventoryTransactionModalOpen(true)} className="px-4 py-2 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
-              Record Transaction
-            </button>
-            <button onClick={() => setAddInventoryModalOpen(true)} className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors">
-              + Add Item
-            </button>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="🔍 Search items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
           </div>
         </div>
 
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="p-4 bg-gray-50 rounded-lg text-center">
             <div className="text-xs text-gray-500 uppercase mb-2">Total Items</div>
@@ -302,61 +346,119 @@ export default function Inventory({
           </div>
         </div>
 
+        {/* Action Bar */}
+        <div className="flex gap-3 mb-4 pb-4 border-b border-gray-200">
+          <button
+            onClick={() => {
+              if (selectedItems.size === 0) {
+                alert('Please select items first');
+                return;
+              }
+              setTransactionType('add');
+              setBulkTransactionModalOpen(true);
+            }}
+            disabled={selectedItems.size === 0}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              selectedItems.size === 0
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-green-500 text-white hover:bg-green-600'
+            }`}
+          >
+            ➕ Add Stock ({selectedItems.size})
+          </button>
+          <button
+            onClick={() => {
+              if (selectedItems.size === 0) {
+                alert('Please select items first');
+                return;
+              }
+              setTransactionType('use');
+              setBulkTransactionModalOpen(true);
+            }}
+            disabled={selectedItems.size === 0}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              selectedItems.size === 0
+                ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                : 'bg-orange-500 text-white hover:bg-orange-600'
+            }`}
+          >
+            ➖ Use Stock ({selectedItems.size})
+          </button>
+          <button
+            onClick={() => setAddInventoryModalOpen(true)}
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium hover:bg-blue-600 transition-colors"
+          >
+            + New Item
+          </button>
+        </div>
+
+        {/* Compact List */}
         {inventoryItems.length === 0 ? (
           <p className="text-gray-400 text-sm italic text-center py-8">No inventory items yet. Add items to start tracking!</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {inventoryItems.map(item => {
-              const isLowStock = item.low_stock_threshold && item.quantity <= item.low_stock_threshold;
-              const itemValue = item.quantity * (item.cost_per_unit || 0);
+          <div className="space-y-1">
+            {/* Header */}
+            <div className="flex items-center px-4 py-2 bg-gray-100 rounded-lg text-xs font-semibold text-gray-600">
+              <div className="w-10">
+                <input
+                  type="checkbox"
+                  checked={selectedItems.size === filteredItems.length && filteredItems.length > 0}
+                  onChange={selectAll}
+                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex-1">Name</div>
+              <div className="w-32 text-right">Quantity</div>
+              <div className="w-24 text-center">Status</div>
+            </div>
+
+            {/* Items */}
+            {filteredItems.map(item => {
+              const status = getStockStatus(item);
+              const isSelected = selectedItems.has(item.id);
               
               return (
-                <div key={item.id} className={`p-6 bg-gray-50 rounded-lg border-2 ${isLowStock ? 'border-red-500' : 'border-gray-200'}`}>
-                  <div className="flex justify-between items-center mb-4">
-                    <div className="font-semibold text-gray-900">{item.name}</div>
-                    {item.category && <div className="text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded">{item.category}</div>}
+                <div
+                  key={item.id}
+                  className={`flex items-center px-4 py-3 rounded-lg border cursor-pointer transition-all ${
+                    isSelected
+                      ? 'bg-blue-50 border-blue-300'
+                      : 'bg-white border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleItemSelection(item.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
-                  
-                  <div className="mb-2">
-                    <span className={`text-2xl font-semibold ${isLowStock ? 'text-red-500' : 'text-gray-900'}`}>
+                  <div
+                    className="flex-1 cursor-pointer"
+                    onClick={() => setEditingItem(item)}
+                  >
+                    <div className="font-medium text-gray-900">{item.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {item.category && <span>{item.category}</span>}
+                      {item.supplier && <span> • {item.supplier}</span>}
+                      {item.cost_per_unit && <span> • ${item.cost_per_unit}/{item.unit}</span>}
+                    </div>
+                  </div>
+                  <div className="w-32 text-right">
+                    <span className={`text-base font-semibold ${
+                      status.label === 'Critical' || status.label === 'Out' ? 'text-red-600' :
+                      status.label === 'Low' ? 'text-yellow-600' : 'text-gray-900'
+                    }`}>
                       {item.quantity}
                     </span>
-                    <span className="ml-2 text-gray-500">{item.unit}</span>
+                    <span className="text-sm text-gray-500 ml-1">{item.unit}</span>
                   </div>
-                  
-                  {item.low_stock_threshold && (
-                    <div className={`text-xs mb-2 ${isLowStock ? 'text-red-500' : 'text-gray-500'}`}>
-                      {isLowStock ? '⚠️ Low Stock' : '✓ In Stock'} (Threshold: {item.low_stock_threshold} {item.unit})
-                    </div>
-                  )}
-                  
-                  <div className="text-xs text-gray-500 mb-2">
-                    {item.cost_per_unit && <div>Cost: ${item.cost_per_unit}/{item.unit}</div>}
-                    {itemValue > 0 && <div>Value: ${itemValue.toFixed(2)}</div>}
-                    {item.supplier && <div>Supplier: {item.supplier}</div>}
-                  </div>
-                  
-                  {item.notes && <div className="text-xs text-gray-500 italic mt-2 mb-2">{item.notes}</div>}
-                  
-                  <div className="flex gap-2 mt-4">
-                    <button 
-                      onClick={() => {
-                        setTransactionFormData({...transactionFormData, item_id: item.id, type: 'use'});
-                        setInventoryTransactionModalOpen(true);
-                      }}
-                      className="flex-1 px-3 py-2 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 transition-colors"
-                    >
-                      Use
-                    </button>
-                    <button 
-                      onClick={() => {
-                        setTransactionFormData({...transactionFormData, item_id: item.id, type: 'add'});
-                        setInventoryTransactionModalOpen(true);
-                      }}
-                      className="flex-1 px-3 py-2 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 transition-colors"
-                    >
-                      Add
-                    </button>
+                  <div className="w-24 text-center">
+                    <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${status.color}`}>
+                      {status.label}
+                    </span>
                   </div>
                 </div>
               );
@@ -365,7 +467,7 @@ export default function Inventory({
         )}
       </div>
 
-      {/* Shopping(order) List */}
+      {/* Shopping List */}
       <div className="bg-white/90 rounded-xl p-6 mb-6 shadow-sm">
         <div className="flex justify-between items-center mb-4 flex-wrap gap-4">
           <h2 className="text-xl font-semibold text-gray-900">Order List</h2>
@@ -437,25 +539,24 @@ export default function Inventory({
         {inventoryTransactions.length === 0 ? (
           <p className="text-gray-400 text-sm italic text-center py-8">No transactions yet.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {inventoryTransactions.slice(0, 10).map(trans => {
               const item = inventoryItems.find(i => i.id === trans.item_id);
               return (
-                <div key={trans.id} className="flex gap-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <div className="text-2xl w-10 h-10 flex items-center justify-center bg-white rounded-full">
+                <div key={trans.id} className="flex gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="text-xl w-8 h-8 flex items-center justify-center">
                     {trans.type === 'add' ? '➕' : trans.type === 'use' ? '➖' : trans.type === 'waste' ? '🗑️' : '🔄'}
                   </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-900 mb-1">
-                      {trans.type.toUpperCase()}: {item?.name || 'Unknown Item'}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-gray-900 truncate">
+                      {trans.type.toUpperCase()}: {item?.name || 'Unknown'}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {trans.quantity} {item?.unit} • {trans.created_by} • {new Date(trans.created_at).toLocaleString()}
+                      {trans.quantity} {item?.unit} • {new Date(trans.created_at).toLocaleString()}
                     </div>
-                    {trans.notes && <div className="text-xs text-gray-500 italic mt-1">{trans.notes}</div>}
                   </div>
                   {trans.cost && (
-                    <div className="text-base font-semibold text-gray-900">${trans.cost.toFixed(2)}</div>
+                    <div className="text-sm font-semibold text-gray-900">${trans.cost.toFixed(2)}</div>
                   )}
                 </div>
               );
@@ -463,6 +564,145 @@ export default function Inventory({
           </div>
         )}
       </div>
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setEditingItem(null)}>
+          <div className="bg-white rounded-xl p-8 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-semibold mb-6 text-gray-900">Edit Item</h3>
+            
+            <input
+              type="text"
+              placeholder="Item name"
+              value={editingItem.name}
+              onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
+            />
+
+            <div className="flex gap-2 mb-4">
+              <input
+                type="number"
+                placeholder="Quantity"
+                value={editingItem.quantity || ''}
+                onChange={(e) => setEditingItem({...editingItem, quantity: parseFloat(e.target.value) || 0})}
+                className="flex-[2] p-3 border border-gray-300 rounded-lg"
+              />
+              <input
+                type="text"
+                placeholder="Unit"
+                value={editingItem.unit}
+                onChange={(e) => setEditingItem({...editingItem, unit: e.target.value})}
+                className="flex-1 p-3 border border-gray-300 rounded-lg"
+              />
+            </div>
+
+            <div className="flex gap-2 mb-4">
+              <input
+                type="number"
+                placeholder="Low stock threshold"
+                value={editingItem.low_stock_threshold || ''}
+                onChange={(e) => setEditingItem({...editingItem, low_stock_threshold: parseFloat(e.target.value) || 0})}
+                className="flex-1 p-3 border border-gray-300 rounded-lg"
+              />
+              <input
+                type="number"
+                step="0.01"
+                placeholder="Cost per unit"
+                value={editingItem.cost_per_unit || ''}
+                onChange={(e) => setEditingItem({...editingItem, cost_per_unit: parseFloat(e.target.value) || 0})}
+                className="flex-1 p-3 border border-gray-300 rounded-lg"
+              />
+            </div>
+
+            <input
+              type="text"
+              placeholder="Supplier"
+              value={editingItem.supplier || ''}
+              onChange={(e) => setEditingItem({...editingItem, supplier: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
+            />
+
+            <input
+              type="text"
+              placeholder="Category"
+              value={editingItem.category || ''}
+              onChange={(e) => setEditingItem({...editingItem, category: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
+            />
+
+            <textarea
+              placeholder="Notes"
+              value={editingItem.notes || ''}
+              onChange={(e) => setEditingItem({...editingItem, notes: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 min-h-[80px]"
+            />
+
+            <div className="flex gap-2">
+              <button onClick={handleUpdateInventoryItem} className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors">
+                Save Changes
+              </button>
+              <button onClick={() => setEditingItem(null)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Transaction Modal */}
+      {bulkTransactionModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setBulkTransactionModalOpen(false)}>
+          <div className="bg-white rounded-xl p-8 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-semibold mb-6 text-gray-900">
+              {transactionType === 'add' ? '➕ Add Stock' : '➖ Use Stock'}
+            </h3>
+            
+            <div className="mb-4 p-3 bg-blue-50 rounded-lg">
+              <div className="text-sm font-medium text-gray-900 mb-1">Selected Items ({selectedItems.size}):</div>
+              <div className="text-xs text-gray-600">
+                {Array.from(selectedItems).map(id => {
+                  const item = inventoryItems.find(i => i.id === id);
+                  return item?.name;
+                }).join(', ')}
+              </div>
+            </div>
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Quantity *"
+              value={bulkTransactionData.quantity || ''}
+              onChange={(e) => setBulkTransactionData({...bulkTransactionData, quantity: parseFloat(e.target.value) || 0})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
+            />
+
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Cost (optional)"
+              value={bulkTransactionData.cost || ''}
+              onChange={(e) => setBulkTransactionData({...bulkTransactionData, cost: parseFloat(e.target.value) || 0})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
+            />
+
+            <textarea
+              placeholder="Notes"
+              value={bulkTransactionData.notes}
+              onChange={(e) => setBulkTransactionData({...bulkTransactionData, notes: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg mb-4 min-h-[80px]"
+            />
+
+            <div className="flex gap-2">
+              <button onClick={handleBulkTransaction} className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors">
+                Record Transaction
+              </button>
+              <button onClick={() => setBulkTransactionModalOpen(false)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Inventory Item Modal */}
       {addInventoryModalOpen && (
@@ -548,77 +788,10 @@ export default function Inventory({
         </div>
       )}
 
-      {/* Inventory Transaction Modal */}
-      {inventoryTransactionModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setInventoryTransactionModalOpen(false)}>
-          <div className="bg-white/90 rounded-xl p-8 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-xl font-semibold mb-6 text-gray-900">Record Inventory Transaction</h3>
-            
-            <select
-              value={transactionFormData.item_id}
-              onChange={(e) => setTransactionFormData({...transactionFormData, item_id: e.target.value})}
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
-            >
-              <option value="">Select item *</option>
-              {inventoryItems.map(item => (
-                <option key={item.id} value={item.id}>
-                  {item.name} ({item.quantity} {item.unit})
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={transactionFormData.type}
-              onChange={(e) => setTransactionFormData({...transactionFormData, type: e.target.value as any})}
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
-            >
-              <option value="use">Use (subtract)</option>
-              <option value="add">Add (increase)</option>
-              <option value="adjust">Adjust (set to)</option>
-              <option value="waste">Waste (subtract)</option>
-            </select>
-
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Quantity *"
-              value={transactionFormData.quantity || ''}
-              onChange={(e) => setTransactionFormData({...transactionFormData, quantity: parseFloat(e.target.value) || 0})}
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
-            />
-
-            <input
-              type="number"
-              step="0.01"
-              placeholder="Cost (optional)"
-              value={transactionFormData.cost || ''}
-              onChange={(e) => setTransactionFormData({...transactionFormData, cost: parseFloat(e.target.value) || 0})}
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4"
-            />
-
-            <textarea
-              placeholder="Notes"
-              value={transactionFormData.notes}
-              onChange={(e) => setTransactionFormData({...transactionFormData, notes: e.target.value})}
-              className="w-full p-3 border border-gray-300 rounded-lg mb-4 min-h-[80px]"
-            />
-
-            <div className="flex gap-2">
-              <button onClick={handleInventoryTransaction} className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors">
-                Record Transaction
-              </button>
-              <button onClick={() => setInventoryTransactionModalOpen(false)} className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors">
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Add Shopping List Item Modal */}
       {addShoppingItemModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setAddShoppingItemModalOpen(false)}>
-          <div className="bg-white/90 rounded-xl p-8 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-xl p-8 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-xl font-semibold mb-6 text-gray-900">Add to Order List</h3>
             
             <input
