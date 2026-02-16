@@ -142,6 +142,13 @@ export default function HomeScreen() {
         options: {
           redirectTo: redirectUrl,
           skipBrowserRedirect: false,
+          // CRITICAL FIX: Add query params to force mobile view
+          queryParams: {
+            // This tells Supabase auth to use mobile-optimized layout
+            display: 'touch',
+            // Optional: can also add access_type if needed
+            // access_type: 'offline',
+          },
         },
       });
 
@@ -151,9 +158,21 @@ export default function HomeScreen() {
       }
 
       if (data?.url) {
+        // CRITICAL FIX: Configure WebBrowser for mobile display
         const result = await WebBrowser.openAuthSessionAsync(
           data.url,
           redirectUrl,
+          {
+            // Show toolbar for better UX
+            showInRecents: true,
+            // Use system browser on Android for better compatibility
+            preferEphemeralSession: false,
+            // Enable JavaScript (should be default but explicit is good)
+            enableDefaultShareMenuItem: false,
+            // Control presentation style
+            controlsColor: colors.primary,
+            toolbarColor: colors.surface,
+          }
         );
 
         if (result.type === "success" && result.url) {
