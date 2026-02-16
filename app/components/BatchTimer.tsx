@@ -1,9 +1,9 @@
 // ============================================
-// CORRECT FILE: app/components/BatchTimer.tsx
-// (This is NOT CustomHeader!)
+// FILE: app/components/BatchTimer.tsx
+// Enhanced with ref support for voice commands
 // ============================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 import { 
   getBatch, startTimer, stopTimer, getTimerStatus, 
@@ -11,13 +11,19 @@ import {
 } from '../../services/database';
 import { useTheme } from '../../contexts/ThemeContext';
 
+export interface BatchTimerRef {
+  startPause: () => void;
+  reset: () => void;
+  addMinute: () => void;
+}
+
 interface BatchTimerProps {
   batchId: string;
   stepId: string;
   durationMinutes: number;
 }
 
-export default function BatchTimer({ batchId, stepId, durationMinutes }: BatchTimerProps) {
+const BatchTimer = forwardRef<BatchTimerRef, BatchTimerProps>(({ batchId, stepId, durationMinutes }, ref) => {
   const { colors } = useTheme();
   const [currentTimer, setCurrentTimer] = useState<Timer | null>(null);
   const [timeDisplay, setTimeDisplay] = useState('');
@@ -56,6 +62,29 @@ export default function BatchTimer({ batchId, stepId, durationMinutes }: BatchTi
     }
   };
 
+  const handleStartPause = async () => {
+    if (isRunning) {
+      await handleStop();
+    } else {
+      await handleStart();
+    }
+  };
+
+  const handleReset = async () => {
+    if (currentTimer) {
+      await stopTimer(batchId, currentTimer.id);
+    }
+  };
+
+  const handleAddMinute = async () => {
+    // Stop current timer if running
+    if (currentTimer) {
+      await stopTimer(batchId, currentTimer.id);
+    }
+    // Start new timer with extra minute
+    await startTimer(batchId, stepId, durationMinutes + 1);
+  };
+
   const formatTime = (seconds: number): string => {
     if (seconds <= 0) return '00:00';
     
@@ -68,6 +97,13 @@ export default function BatchTimer({ batchId, stepId, durationMinutes }: BatchTi
   const progress = currentTimer 
     ? Math.max(0, Math.min(100, (getTimerStatus(currentTimer).remainingSeconds / (durationMinutes * 60)) * 100))
     : 100;
+
+  // Expose methods to parent component via ref for voice commands
+  useImperativeHandle(ref, () => ({
+    startPause: handleStartPause,
+    reset: handleReset,
+    addMinute: handleAddMinute,
+  }));
 
   return (
     <View style={styles.container}>
@@ -105,20 +141,35 @@ export default function BatchTimer({ batchId, stepId, durationMinutes }: BatchTi
             onPress={handleStart}
             style={[styles.button, styles.startButton, { backgroundColor: colors.success }]}
           >
-            <Text style={styles.buttonText}>▶ Start Timer</Text>
+            <Text style={styles.buttonText}>▶ Start</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity 
             onPress={handleStop}
-            style={[styles.button, styles.stopButton, { backgroundColor: colors.error }]}
+            style={[styles.button, styles.pauseButton, { backgroundColor: colors.warning }]}
           >
-            <Text style={styles.buttonText}>⏹ Stop Timer</Text>
+            <Text style={styles.buttonText}>⏸ Pause</Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity 
+          onPress={handleAddMinute}
+          style={[styles.button, styles.addMinuteButton, { backgroundColor: colors.primary }]}
+          disabled={isRunning}
+        >
+          <Text style={styles.buttonText}>+1 Min</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={handleReset}
+          style={[styles.button, styles.resetButton, { backgroundColor: colors.textSecondary }]}
+        >
+          <Text style={styles.buttonText}>↻ Reset</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -150,7 +201,7 @@ const styles = StyleSheet.create({
   },
   controls: {
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
   },
   button: {
     flex: 1,
@@ -160,10 +211,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   startButton: {},
-  stopButton: {},
+  pauseButton: {},
+  addMinuteButton: {},
+  resetButton: {},
   buttonText: {
     color: 'white',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
   },
 });
+
+export default BatchTimer;

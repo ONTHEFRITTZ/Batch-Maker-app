@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
-import { addWorkflow, Workflow } from '../../services/database';
+import { addWorkflow, getWorkflows, Workflow } from '../../services/database';
 
 // Fraction conversion table
 const FRACTIONS: { [key: string]: string } = {
@@ -132,7 +132,7 @@ export default function RecipeParserScreen() {
   const [workflowName, setWorkflowName] = useState('');
   const [recipeText, setRecipeText] = useState('');
 
-  const parseRecipe = () => {
+  const parseRecipe = async () => {
     if (!workflowName.trim()) {
       Alert.alert('Error', 'Please enter a workflow name');
       return;
@@ -286,27 +286,31 @@ export default function RecipeParserScreen() {
         steps: steps.map((step, index) => {
           let description = step.description;
           
+          // Add checklist to description if there are items
+          if (step.checklistItems.length > 0) {
+            const checklistText = step.checklistItems
+              .map(item => `☐ ${item}`)
+              .join('\n');
+            
+            if (description) description += '\n\n';
+            description += `📋 Checklist:\n${checklistText}`;
+          }
+          
           return {
-           id: `${workflowId}_step_${index + 1}`,
-           title: step.title || `Step ${index + 1}`,
-           description,
-           timerMinutes: step.timerMinutes,
-           completed: false,
-           ingredients: step.checklistItems, // Add ingredients array
-         };
-
-          return {
-           id: `${workflowId}_step_${index + 1}`,
-           title: step.title || `Step ${index + 1}`,
-           description: step.description, // Keep description clean
-           timerMinutes: step.timerMinutes,
-           completed: false,
-           ingredients: step.checklistItems, // Store as separate array
-         };
+            id: `${workflowId}_step_${index + 1}`,
+            title: step.title || `Step ${index + 1}`,
+            description,
+            timerMinutes: step.timerMinutes,
+            completed: false,
+          };
         }),
       };
 
-      addWorkflow(workflow);
+      await addWorkflow(workflow);
+      
+      // CRITICAL FIX: Force cache refresh
+      console.log('[RecipeParser] Forcing cache refresh after import');
+      await getWorkflows();
 
       Alert.alert(
         'Success',

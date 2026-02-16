@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../contexts/ThemeContext';
-import { addWorkflow, Workflow } from '../../services/database';
+import { addWorkflow, getWorkflows, Workflow } from '../../services/database';
 import { supabase } from '../../services/supabaseClient';
 
 export default function URLImportScreen() {
@@ -104,6 +104,10 @@ export default function URLImportScreen() {
       };
 
       await addWorkflow(finalWorkflow);
+      
+      // CRITICAL FIX: Force cache refresh
+      console.log('[URLImport] Forcing cache refresh after import');
+      await getWorkflows();
 
       // step 0 is "Prepare Ingredients" — don't count it in the user-facing total
       const recipeStepCount = workflow.steps.filter((s: any) => s.order !== 0).length;

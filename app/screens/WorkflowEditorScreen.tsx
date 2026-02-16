@@ -195,6 +195,10 @@ export default function WorkflowEditorScreen() {
       
       await setWorkflows(updatedWorkflows);
 
+      // CRITICAL FIX: Force cache refresh
+      console.log('[WorkflowEditor] Forcing cache refresh after save');
+      await getWorkflows();
+
       Alert.alert('Success', 'Workflow updated!', [
         {
           text: 'OK',

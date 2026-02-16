@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import React, { FC, useEffect, useState } from "react";
+import { useRouter, useFocusEffect } from "expo-router";
+import React, { FC, useEffect, useState, useCallback } from "react";
 import { 
   FlatList, Text, View, TouchableOpacity, StyleSheet, Alert,
   TextInput, Modal, Animated, ScrollView, Switch
@@ -273,8 +273,27 @@ export const WorkflowSelectScreen: FC = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // CRITICAL FIX: Force refresh when screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[WorkflowSelect] Screen focused - refreshing data');
+      loadData();
+      
+      // Also poll while screen is focused
+      const pollingInterval = setInterval(() => {
+        loadData();
+      }, 3000);
+      
+      return () => {
+        clearInterval(pollingInterval);
+      };
+    }, [])
+  );
+
   const loadData = async () => {
+    console.log('[WorkflowSelect] Loading workflows...');
     const allWorkflows = await getWorkflows();
+    console.log('[WorkflowSelect] Loaded', allWorkflows.length, 'workflows');
     setWorkflows(allWorkflows);
     setBatches(getBatches());
     
@@ -287,11 +306,6 @@ export const WorkflowSelectScreen: FC = () => {
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  useEffect(() => {
-    // Filter workflows based on archived toggle
     const filtered = showArchived 
       ? workflows 
       : workflows.filter(w => !w.archived);
@@ -391,15 +405,7 @@ export const WorkflowSelectScreen: FC = () => {
     if (!workflow) return;
 
     setSelectedWorkflow(workflowId);
-    
-    // Check if workflow has ferment prompt enabled
-    if (workflow.show_ferment_prompt === false) {
-      // Skip modal, create batch directly as bake-today
-      createBatch(workflowId, 'bake-today', 1, 1).then(() => loadData());
-    } else {
-      // Show modal
-      setShowNewBatchModal(true);
-    }
+    setShowNewBatchModal(true);
   };
 
   const handleArchiveWorkflow = async (workflowId: string) => {
@@ -615,7 +621,10 @@ export const WorkflowSelectScreen: FC = () => {
 
       <SettingsModal 
         visible={settingsVisible}
-        onClose={() => setSettingsVisible(false)}
+        onClose={() => {
+          setSettingsVisible(false);
+          loadData();
+        }}
         onWorkflowsUpdated={loadData}
       />
 
@@ -660,23 +669,36 @@ export const WorkflowSelectScreen: FC = () => {
               </View>
             </View>
 
-            <Text style={[styles.modeSectionLabel, { color: colors.textSecondary }]}>Select Mode</Text>
-            
-            <TouchableOpacity 
-              style={[styles.modeButton, { backgroundColor: colors.success + '20', borderColor: colors.success }]}
-              onPress={() => handleCreateBatch('bake-today')}
-            >
-              <Text style={styles.modeButtonIcon}>🟢</Text>
-              <Text style={[styles.modeButtonText, { color: colors.text }]}>Bake Today</Text>
-            </TouchableOpacity>
+            {selectedWorkflow && workflows.find(w => w.id === selectedWorkflow)?.show_ferment_prompt !== false && (
+              <>
+                <Text style={[styles.modeSectionLabel, { color: colors.textSecondary }]}>Select Mode</Text>
+                
+                <TouchableOpacity 
+                  style={[styles.modeButton, { backgroundColor: colors.success + '20', borderColor: colors.success }]}
+                  onPress={() => handleCreateBatch('bake-today')}
+                >
+                  <Text style={styles.modeButtonIcon}>🟢</Text>
+                  <Text style={[styles.modeButtonText, { color: colors.text }]}>Bake Today</Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.modeButton, { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}
-              onPress={() => handleCreateBatch('cold-ferment')}
-            >
-              <Text style={styles.modeButtonIcon}>🔵</Text>
-              <Text style={[styles.modeButtonText, { color: colors.text }]}>Cold Ferment</Text>
-            </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.modeButton, { backgroundColor: colors.primary + '20', borderColor: colors.primary }]}
+                  onPress={() => handleCreateBatch('cold-ferment')}
+                >
+                  <Text style={styles.modeButtonIcon}>🔵</Text>
+                  <Text style={[styles.modeButtonText, { color: colors.text }]}>Cold Ferment</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {selectedWorkflow && workflows.find(w => w.id === selectedWorkflow)?.show_ferment_prompt === false && (
+              <TouchableOpacity 
+                style={[styles.modeButton, { backgroundColor: colors.primary + '20', borderColor: colors.primary, marginTop: 12 }]}
+                onPress={() => handleCreateBatch('bake-today')}
+              >
+                <Text style={[styles.modeButtonText, { color: colors.text }]}>Create Batch</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity 
               style={styles.modeCancelButton}
@@ -703,15 +725,8 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 22, fontWeight: 'bold', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
   sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
-  archiveToggleContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 8 
-  },
-  archiveToggleLabel: { 
-    fontSize: 14, 
-    fontWeight: '600' 
-  },
+  archiveToggleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  archiveToggleLabel: { fontSize: 14, fontWeight: '600' },
   listContent: { paddingHorizontal: 20 },
   emptyState: { padding: 40, alignItems: 'center' },
   emptyText: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
@@ -726,20 +741,7 @@ const styles = StyleSheet.create({
   batchTimer: { fontSize: 16, fontWeight: '600' },
   timerCount: { fontSize: 12, marginTop: 4, fontStyle: 'italic' },
   renameInput: { fontSize: 18, fontWeight: '700', borderBottomWidth: 2, paddingVertical: 4 },
-  contextMenu: { 
-    position: 'absolute', 
-    top: 0, 
-    right: 0, 
-    left: 0, 
-    borderRadius: 12, 
-    elevation: 999,
-    shadowColor: '#000', 
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    zIndex: 99999,
-    borderWidth: 2 
-  },
+  contextMenu: { position: 'absolute', top: 0, right: 0, left: 0, borderRadius: 12, elevation: 999, shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.5, shadowRadius: 12, zIndex: 99999, borderWidth: 2 },
   contextMenuItem: { padding: 16, borderBottomWidth: 1 },
   contextMenuText: { fontSize: 16, fontWeight: '600' },
   workflowCard: { padding: 20, borderRadius: 12, marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 3, borderWidth: 1 },

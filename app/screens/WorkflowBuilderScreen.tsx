@@ -95,14 +95,12 @@ export default function WorkflowBuilderScreen() {
 
       const workflowId = workflowName.toLowerCase().replace(/\s+/g, '_') + '_custom_' + Date.now();
       
-      // Process steps
       const processedSteps: Step[] = [];
 
       for (let index = 0; index < steps.length; index++) {
         const step = steps[index];
         let description = step.description || '';
         
-        // Add checklist
         if (step.checklistItems && step.checklistItems.length > 0) {
           const checklistText = step.checklistItems
             .filter(item => item.text.trim())
@@ -115,7 +113,6 @@ export default function WorkflowBuilderScreen() {
           }
         }
 
-        // Add YouTube URL
         if (step.youtubeUrl && step.youtubeUrl.trim()) {
           if (description) description += '\n\n';
           description += `🎥 Video: ${step.youtubeUrl.trim()}`;
@@ -139,7 +136,13 @@ export default function WorkflowBuilderScreen() {
 
       const existingWorkflows = await getWorkflows();
       const existingCount = existingWorkflows.length;
+      
       await addWorkflow(newWorkflow);
+      
+      // CRITICAL FIX: Force cache refresh
+      console.log('[WorkflowBuilder] Forcing cache refresh after save');
+      await getWorkflows();
+      
       const updatedWorkflows = await getWorkflows();
       const newCount = updatedWorkflows.length;
 
@@ -173,7 +176,6 @@ export default function WorkflowBuilderScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>
-        {/* Workflow Name */}
         <View style={styles.section}>
           <Text style={[styles.sectionLabel, { color: colors.text }]}>Workflow Name</Text>
           <TextInput
@@ -190,7 +192,6 @@ export default function WorkflowBuilderScreen() {
           />
         </View>
 
-        {/* Show Ferment Prompt Toggle */}
         <View style={styles.section}>
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
@@ -210,7 +211,6 @@ export default function WorkflowBuilderScreen() {
           </View>
         </View>
 
-        {/* Steps */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionLabel, { color: colors.text }]}>Steps</Text>
@@ -280,7 +280,6 @@ export default function WorkflowBuilderScreen() {
                 editable={!isSaving}
               />
 
-              {/* Checklist Section */}
               <View style={styles.checklistSection}>
                 <View style={styles.checklistHeader}>
                   <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
@@ -344,7 +343,6 @@ export default function WorkflowBuilderScreen() {
                 editable={!isSaving}
               />
 
-              {/* YouTube Video URL */}
               <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>
                 YouTube Video URL (optional)
               </Text>
@@ -371,7 +369,6 @@ export default function WorkflowBuilderScreen() {
         </View>
       </ScrollView>
 
-      {/* Bottom Action Bar */}
       <View style={[styles.actionBar, { 
         backgroundColor: colors.surface,
         borderTopColor: colors.border 
@@ -407,12 +404,7 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionLabel: { fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
-  toggleRow: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    gap: 16,
-    marginBottom: 8
-  },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 8 },
   addButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   addButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
   input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 16 },
