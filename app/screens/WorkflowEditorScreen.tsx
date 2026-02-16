@@ -22,6 +22,7 @@ export default function WorkflowEditorScreen() {
   const { workflowId } = useLocalSearchParams<{ workflowId: string }>();
   
   const [workflowName, setWorkflowName] = useState('');
+  const [showFermentPrompt, setShowFermentPrompt] = useState(true);
   const [steps, setSteps] = useState<StepWithExtras[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -41,6 +42,7 @@ export default function WorkflowEditorScreen() {
     }
 
     setWorkflowName(workflow.name);
+    setShowFermentPrompt(workflow.show_ferment_prompt ?? true);
     
     // Parse steps and extract all metadata
     const parsedSteps: StepWithExtras[] = workflow.steps.map((step: Step) => {
@@ -182,6 +184,7 @@ export default function WorkflowEditorScreen() {
         id: workflowId!,
         name: workflowName,
         steps: processedSteps,
+        show_ferment_prompt: showFermentPrompt,
       };
 
       // Update the workflow in the list
@@ -232,6 +235,26 @@ export default function WorkflowEditorScreen() {
             placeholderTextColor={colors.textSecondary}
             editable={!isSaving}
           />
+        </View>
+
+        {/* Show Ferment Prompt Toggle */}
+        <View style={styles.section}>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.sectionLabel, { color: colors.text }]}>
+                Bake Timing Options
+              </Text>
+              <Text style={[styles.helperText, { color: colors.textSecondary, marginTop: 4 }]}>
+                Show "Bake Today" / "Cold Ferment" options when creating batches
+              </Text>
+            </View>
+            <Switch
+              value={showFermentPrompt}
+              onValueChange={setShowFermentPrompt}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={colors.surface}
+            />
+          </View>
         </View>
 
         {/* Steps */}
@@ -432,6 +455,12 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
   sectionLabel: { fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
+  toggleRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 16,
+    marginBottom: 8
+  },
   addButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   addButtonText: { color: 'white', fontSize: 14, fontWeight: '600' },
   input: { borderWidth: 1, borderRadius: 8, padding: 12, fontSize: 16, marginBottom: 16 },

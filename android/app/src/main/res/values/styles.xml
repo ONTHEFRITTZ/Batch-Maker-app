@@ -4,6 +4,9 @@
     <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     <item name="colorPrimary">@color/colorPrimary</item>
     <item name="android:statusBarColor">#ffffff</item>
+    <item name="android:windowIsTranslucent">false</item>
+    <item name="android:windowBackground">@android:color/white</item>
+    <item name="android:windowContentOverlay">@null</item>
   </style>
   <style name="Theme.App.SplashScreen" parent="Theme.SplashScreen">
     <item name="windowSplashScreenBackground">@color/splashscreen_background</item>

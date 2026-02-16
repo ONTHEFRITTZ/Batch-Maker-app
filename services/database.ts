@@ -30,6 +30,9 @@ export interface Workflow {
   total_time_minutes?: number;
   created_at?: string;
   updated_at?: string;
+  archived?: boolean;
+  archived_at?: string;
+  show_ferment_prompt?: boolean;
 }
 
 export interface Timer {
@@ -166,20 +169,33 @@ export async function setWorkflows(newWorkflows: Workflow[]): Promise<void> {
     
     if (!user) throw new Error('Must be signed in');
 
+    const currentWorkflows = await getWorkflows();
+    const newWorkflowIds = new Set(newWorkflows.map(w => w.id));
+    
+    const workflowsToDelete = currentWorkflows.filter(w => !newWorkflowIds.has(w.id));
+    for (const workflow of workflowsToDelete) {
+      await supabase
+        .from('workflows')
+        .delete()
+        .eq('id', workflow.id)
+        .eq('user_id', user.id);
+    }
+
     for (const workflow of newWorkflows) {
-      if (workflow.user_id === user.id) {
-        await supabase
-          .from('workflows')
-          .upsert({
-            id: workflow.id,
-            name: workflow.name,
-            steps: workflow.steps,
-            user_id: user.id,
-            claimed_by: workflow.claimedBy || null,
-            claimed_by_name: workflow.claimedByName || null,
-            updated_at: new Date().toISOString(),
-          });
-      }
+      await supabase
+        .from('workflows')
+        .upsert({
+          id: workflow.id,
+          name: workflow.name,
+          steps: workflow.steps,
+          user_id: user.id,
+          claimed_by: workflow.claimedBy || null,
+          claimed_by_name: workflow.claimedByName || null,
+          archived: workflow.archived || false,
+          archived_at: workflow.archived_at || null,
+          show_ferment_prompt: workflow.show_ferment_prompt ?? true,
+          updated_at: new Date().toISOString(),
+        });
     }
 
     cachedWorkflows = newWorkflows;
@@ -204,6 +220,9 @@ export async function addWorkflow(newWorkflow: Workflow): Promise<void> {
       user_id: user.id,
       claimed_by: newWorkflow.claimedBy || null,
       claimed_by_name: newWorkflow.claimedByName || null,
+      archived: newWorkflow.archived || false,
+      archived_at: newWorkflow.archived_at || null,
+      show_ferment_prompt: newWorkflow.show_ferment_prompt ?? true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -223,7 +242,6 @@ export async function resetWorkflows(): Promise<void> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Soft delete
     await supabase
       .from('workflows')
       .update({ deleted_at: new Date().toISOString() })
@@ -253,6 +271,66 @@ export async function markStepCompleted(workflowId: string, stepId: string, comp
       updated_at: new Date().toISOString(),
     })
     .eq('id', workflowId);
+}
+
+export async function archiveWorkflow(workflowId: string): Promise<void> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Must be signed in');
+
+    const { error } = await supabase
+      .from('workflows')
+      .update({
+        archived: true,
+        archived_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', workflowId)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+
+    const workflow = cachedWorkflows.find(w => w.id === workflowId);
+    if (workflow) {
+      workflow.archived = true;
+      workflow.archived_at = new Date().toISOString();
+    }
+
+    await getWorkflows();
+  } catch (err) {
+    console.error('Error archiving workflow:', err);
+    throw err;
+  }
+}
+
+export async function unarchiveWorkflow(workflowId: string): Promise<void> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Must be signed in');
+
+    const { error } = await supabase
+      .from('workflows')
+      .update({
+        archived: false,
+        archived_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', workflowId)
+      .eq('user_id', user.id);
+
+    if (error) throw error;
+
+    const workflow = cachedWorkflows.find(w => w.id === workflowId);
+    if (workflow) {
+      workflow.archived = false;
+      workflow.archived_at = undefined;
+    }
+
+    await getWorkflows();
+  } catch (err) {
+    console.error('Error unarchiving workflow:', err);
+    throw err;
+  }
 }
 
 // ============================================
@@ -337,7 +415,6 @@ export async function isWorkflowClaimedByMe(workflowId: string): Promise<boolean
 // BATCH MANAGEMENT
 // ============================================
 
-// Convert DB snake_case to app camelCase
 function dbBatchToApp(dbBatch: any): Batch {
   return {
     id: dbBatch.id,
@@ -541,7 +618,6 @@ async function _updateBatch(batchId: string, updates: any): Promise<void> {
   const batch = cachedBatches.find(b => b.id === batchId);
   if (!batch) return;
 
-  // Convert camelCase to snake_case
   const dbUpdates: any = { updated_at: new Date().toISOString() };
   
   if (updates.batchSizeMultiplier !== undefined) dbUpdates.batch_size_multiplier = updates.batchSizeMultiplier;

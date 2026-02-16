@@ -37,33 +37,53 @@ export const StepScreen: FC = () => {
 
   // Voice Commands Setup
   const voiceCommands: VoiceCommand[] = [
-    {
-      command: 'next step',
-      aliases: ['next', 'continue', 'move on', 'go on'],
-      action: () => handleNext(),
+  {
+    command: 'next step',
+    aliases: ['next', 'continue', 'move on', 'go on'],
+    action: () => handleNext(),
+  },
+  {
+    command: 'previous step',
+    aliases: ['back', 'go back', 'last step', 'previous'],
+    action: () => handlePrevious(),
+  },
+  {
+    command: 'check',
+    aliases: ['tick', 'mark', 'done with', 'finished', 'got it', 'check next'],
+    action: () => {
+      const uncheckedItem = checklistItems.find(item => !checkedItems.has(item));
+      if (uncheckedItem) {
+        toggleCheckbox(uncheckedItem);
+      } else {
+        Alert.alert('All checked', 'All items are already completed');
+      }
     },
-    {
-      command: 'previous step',
-      aliases: ['back', 'go back', 'last step', 'previous'],
-      action: () => handlePrevious(),
+  },
+  {
+    command: 'check all',
+    aliases: ['tick all', 'mark all', 'all done', 'check everything'],
+    action: () => {
+      const newChecked = new Set(checklistItems);
+      setCheckedItems(newChecked);
     },
-    {
-      command: 'clear checklist',
-      aliases: ['clear', 'clear all', 'reset checklist'],
-      action: () => handleClear(),
+  },
+  {
+    command: 'clear checklist',
+    aliases: ['clear', 'clear all', 'reset checklist', 'uncheck all'],
+    action: () => handleClear(),
+  },
+  {
+    command: 'finish batch',
+    aliases: ['finish', 'complete', 'done', 'all done with batch', 'finish this'],
+    action: () => {
+      if (currentStepIndex === workflow!.steps.length - 1) {
+        handleFinish();
+      } else {
+        Alert.alert('Not Ready', 'Complete all steps before finishing');
+      }
     },
-    {
-      command: 'finish batch',
-      aliases: ['finish', 'complete', 'done', 'all done'],
-      action: () => {
-        if (currentStepIndex === workflow!.steps.length - 1) {
-          handleFinish();
-        } else {
-          Alert.alert('Not Ready', 'Complete all steps before finishing');
-        }
-      },
-    },
-  ];
+  },
+];
 
   const { isListening, recognizedText, error: voiceError, startListening, stopListening } =
     useVoiceCommands(voiceCommands);

@@ -2,14 +2,14 @@ import { useRouter } from "expo-router";
 import React, { FC, useEffect, useState } from "react";
 import { 
   FlatList, Text, View, TouchableOpacity, StyleSheet, Alert,
-  TextInput, Modal, Animated, ScrollView
+  TextInput, Modal, Animated, ScrollView, Switch
 } from "react-native";
 import { 
   getWorkflows, getBatches, createBatch, duplicateBatch, 
   renameBatch, deleteBatch, batchHasProgress, getMostUrgentTimer,
   batchHasExpiredTimer, getTimerStatus, formatTimeRemaining,
   claimWorkflow, unclaimWorkflow, getClaimedWorkflows, getUnclaimedWorkflows,
-  isWorkflowClaimedByMe,
+  isWorkflowClaimedByMe, archiveWorkflow, unarchiveWorkflow,
   Workflow, Batch
 } from "../../services/database";
 import SettingsModal from "../components/SettingsModal";
@@ -192,13 +192,17 @@ const WorkflowItem: FC<{
   colors: any;
   hasActiveBatches: boolean;
   isClaimed: boolean;
+  contextMenuOpen: boolean;
   onSelectWorkflow: (id: string) => void;
-}> = ({ item, colors, hasActiveBatches, isClaimed, onSelectWorkflow }) => {
+  onLongPress: (id: string) => void;
+}> = ({ item, colors, hasActiveBatches, isClaimed, contextMenuOpen, onSelectWorkflow, onLongPress }) => {
   return (
     <View style={styles.workflowContainer}>
       <TouchableOpacity
         style={[styles.workflowCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
         onPress={() => onSelectWorkflow(item.id)}
+        onLongPress={() => onLongPress(item.id)}
+        delayLongPress={500}
       >
         <View style={styles.workflowHeader}>
           <View style={{ flex: 1 }}>
@@ -219,6 +223,24 @@ const WorkflowItem: FC<{
           </View>
         </View>
       </TouchableOpacity>
+
+      {contextMenuOpen && (
+        <View style={[styles.contextMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <TouchableOpacity 
+            style={[styles.contextMenuItem, { borderBottomColor: colors.border }]}
+            onPress={() => onSelectWorkflow(item.id)}
+          >
+            <Text style={[styles.contextMenuText, { color: colors.text }]}>Create Batch</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.contextMenuItem}
+            onPress={() => onLongPress('')}
+          >
+            <Text style={[styles.contextMenuText, { color: colors.textSecondary }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -230,18 +252,17 @@ export const WorkflowSelectScreen: FC = () => {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [contextMenuBatch, setContextMenuBatch] = useState<string | null>(null);
+  const [contextMenuWorkflow, setContextMenuWorkflow] = useState<string | null>(null);
   const [renamingBatch, setRenamingBatch] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
   const [selectedWorkflow, setSelectedWorkflow] = useState<string | null>(null);
   const [showMyWorkflows, setShowMyWorkflows] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [displayedWorkflows, setDisplayedWorkflows] = useState<Workflow[]>([]);
   const [batchSizeMultiplier, setBatchSizeMultiplier] = useState(1);
-  const [showEditSelector, setShowEditSelector] = useState(false);
   
   const [claimedStatus, setClaimedStatus] = useState<Map<string, boolean>>(new Map());
-
-  // Filter batches to only show claimed ones on My Workflows tab
   const [displayedBatches, setDisplayedBatches] = useState<Batch[]>([]);
 
   useEffect(() => {
@@ -270,21 +291,22 @@ export const WorkflowSelectScreen: FC = () => {
   }, []);
 
   useEffect(() => {
-    // Always show all workflows - the tab only filters batches
-    setDisplayedWorkflows(workflows);
-  }, [showMyWorkflows, workflows, claimedStatus]);
+    // Filter workflows based on archived toggle
+    const filtered = showArchived 
+      ? workflows 
+      : workflows.filter(w => !w.archived);
+    
+    setDisplayedWorkflows(filtered);
+  }, [showArchived, workflows]);
 
-  // CRITICAL FIX: Filter batches based on tab
   useEffect(() => {
     if (showMyWorkflows) {
-      // Only show batches where the workflow is claimed by me
       const myBatches = batches.filter(batch => {
         const isClaimed = claimedStatus.get(batch.workflowId) || false;
         return isClaimed;
       });
       setDisplayedBatches(myBatches);
     } else {
-      // Show all batches on All Workflows tab
       setDisplayedBatches(batches);
     }
   }, [showMyWorkflows, batches, claimedStatus]);
@@ -365,12 +387,41 @@ export const WorkflowSelectScreen: FC = () => {
   };
 
   const handleSelectWorkflow = (workflowId: string) => {
+    const workflow = workflows.find(w => w.id === workflowId);
+    if (!workflow) return;
+
     setSelectedWorkflow(workflowId);
-    setShowNewBatchModal(true);
+    
+    // Check if workflow has ferment prompt enabled
+    if (workflow.show_ferment_prompt === false) {
+      // Skip modal, create batch directly as bake-today
+      createBatch(workflowId, 'bake-today', 1, 1).then(() => loadData());
+    } else {
+      // Show modal
+      setShowNewBatchModal(true);
+    }
+  };
+
+  const handleArchiveWorkflow = async (workflowId: string) => {
+    const workflow = workflows.find(w => w.id === workflowId);
+    if (!workflow) return;
+
+    try {
+      if (workflow.archived) {
+        await unarchiveWorkflow(workflowId);
+      } else {
+        await archiveWorkflow(workflowId);
+      }
+      setContextMenuWorkflow(null);
+      await loadData();
+    } catch (error) {
+      console.error('Error toggling archive:', error);
+      Alert.alert('Error', 'Failed to update workflow');
+    }
   };
 
   const handleEditWorkflow = (workflowId: string) => {
-    setShowEditSelector(false);
+    setContextMenuWorkflow(null);
     router.push({
       pathname: '/screens/WorkflowEditorScreen',
       params: { workflowId }
@@ -401,7 +452,7 @@ export const WorkflowSelectScreen: FC = () => {
     );
   };
 
-  const renderWorkflow = ({ item }: { item: Workflow }) => {
+  const renderWorkflow = ({ item, contextMenuOpen, onLongPress }: { item: Workflow; contextMenuOpen: boolean; onLongPress: (id: string) => void }) => {
     const isClaimed = claimedStatus.get(item.id) || false;
     const hasActiveBatches = batches.some(b => b.workflowId === item.id);
     
@@ -411,7 +462,9 @@ export const WorkflowSelectScreen: FC = () => {
         colors={colors}
         hasActiveBatches={hasActiveBatches}
         isClaimed={isClaimed}
+        contextMenuOpen={contextMenuOpen}
         onSelectWorkflow={handleSelectWorkflow}
+        onLongPress={onLongPress}
       />
     );
   };
@@ -470,27 +523,68 @@ export const WorkflowSelectScreen: FC = () => {
               <Text style={[styles.sectionTitle, { color: colors.text }]}>
                 Start New Batch
               </Text>
-              <TouchableOpacity
-                style={[styles.editButton, { backgroundColor: colors.primary }]}
-                onPress={() => setShowEditSelector(true)}
-              >
-                <Text style={styles.editButtonText}>Edit</Text>
-              </TouchableOpacity>
+              <View style={styles.archiveToggleContainer}>
+                <Text style={[styles.archiveToggleLabel, { color: colors.textSecondary }]}>
+                  Show Archived
+                </Text>
+                <Switch
+                  value={showArchived}
+                  onValueChange={setShowArchived}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.surface}
+                />
+              </View>
             </View>
             {displayedWorkflows.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                  No workflows yet
+                  {showArchived ? 'No archived workflows' : 'No workflows yet'}
                 </Text>
                 <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-                  Tap settings to import
+                  {showArchived ? 'Archive workflows by long-pressing them' : 'Tap settings to import'}
                 </Text>
               </View>
             ) : (
               <View style={styles.listContent}>
                 {displayedWorkflows.map(item => (
                   <View key={item.id}>
-                    {renderWorkflow({ item })}
+                    {renderWorkflow({ 
+                      item, 
+                      contextMenuOpen: contextMenuWorkflow === item.id,
+                      onLongPress: (id) => {
+                        if (id === '') {
+                          setContextMenuWorkflow(null);
+                        } else {
+                          setContextMenuWorkflow(id);
+                        }
+                      }
+                    })}
+                    {contextMenuWorkflow === item.id && (
+                      <View style={[styles.contextMenu, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                        <TouchableOpacity 
+                          style={[styles.contextMenuItem, { borderBottomColor: colors.border }]}
+                          onPress={() => handleEditWorkflow(item.id)}
+                        >
+                          <Text style={[styles.contextMenuText, { color: colors.text }]}>Edit Workflow</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={[styles.contextMenuItem, { borderBottomColor: colors.border }]}
+                          onPress={() => handleArchiveWorkflow(item.id)}
+                        >
+                          <Text style={[styles.contextMenuText, { color: colors.text }]}>
+                            {item.archived ? 'Unarchive' : 'Archive'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity 
+                          style={styles.contextMenuItem}
+                          onPress={() => setContextMenuWorkflow(null)}
+                        >
+                          <Text style={[styles.contextMenuText, { color: colors.textSecondary }]}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
                 ))}
               </View>
@@ -524,47 +618,6 @@ export const WorkflowSelectScreen: FC = () => {
         onClose={() => setSettingsVisible(false)}
         onWorkflowsUpdated={loadData}
       />
-
-      <Modal
-        visible={showEditSelector}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowEditSelector(false)}
-      >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowEditSelector(false)}
-        >
-          <View style={[styles.editModal, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.editModalTitle, { color: colors.text }]}>Select Workflow to Edit</Text>
-            
-            <ScrollView style={styles.editModalScroll}>
-              {workflows.map(workflow => (
-                <TouchableOpacity
-                  key={workflow.id}
-                  style={[styles.editModalItem, { borderBottomColor: colors.border }]}
-                  onPress={() => handleEditWorkflow(workflow.id)}
-                >
-                  <Text style={[styles.editModalItemText, { color: colors.text }]}>
-                    {workflow.name}
-                  </Text>
-                  <Text style={[styles.editModalItemSteps, { color: colors.textSecondary }]}>
-                    {workflow.steps.length} steps
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-
-            <TouchableOpacity 
-              style={styles.editModalCancel}
-              onPress={() => setShowEditSelector(false)}
-            >
-              <Text style={[styles.editModalCancelText, { color: colors.textSecondary }]}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       <Modal
         visible={showNewBatchModal}
@@ -642,7 +695,6 @@ export const WorkflowSelectScreen: FC = () => {
   );
 };
 
-
 const styles = StyleSheet.create({
   container: { flex: 1 },
   toggleBar: { flexDirection: 'row', borderBottomWidth: 1 },
@@ -651,8 +703,15 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 22, fontWeight: 'bold', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
   sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12 },
-  editButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8 },
-  editButtonText: { color: 'white', fontSize: 16, fontWeight: '600' },
+  archiveToggleContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 8 
+  },
+  archiveToggleLabel: { 
+    fontSize: 14, 
+    fontWeight: '600' 
+  },
   listContent: { paddingHorizontal: 20 },
   emptyState: { padding: 40, alignItems: 'center' },
   emptyText: { fontSize: 18, fontWeight: '600', marginBottom: 8 },
@@ -692,14 +751,6 @@ const styles = StyleSheet.create({
   settingsButton: { position: 'absolute', bottom: 30, right: 30, width: 70, height: 70, borderRadius: 35, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, zIndex: 9999 },
   line: { width: 30, height: 4, backgroundColor: 'white', marginVertical: 3, borderRadius: 2 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  editModal: { borderRadius: 20, padding: 24, width: '85%', maxHeight: '70%' },
-  editModalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
-  editModalScroll: { maxHeight: 400 },
-  editModalItem: { paddingVertical: 16, borderBottomWidth: 1 },
-  editModalItemText: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
-  editModalItemSteps: { fontSize: 14 },
-  editModalCancel: { marginTop: 16, padding: 12 },
-  editModalCancelText: { fontSize: 16, textAlign: 'center' },
   modeModal: { borderRadius: 20, padding: 24, width: '80%', maxWidth: 300 },
   modeModalTitle: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 24 },
   sizeSection: { marginBottom: 20 },

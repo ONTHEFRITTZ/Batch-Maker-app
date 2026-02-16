@@ -37,8 +37,8 @@ export function useVoiceCommands(
   options: VoiceCommandsOptions = {}
 ) {
   const {
-    wakeWord = 'hey baker',
-    continuousListening = false,
+    wakeWord = null, // Disabled by default - direct command recognition
+    continuousListening = true, // Enable by default
     commandTimeout = 5000,
     confidenceThreshold = 0.55,
   } = options;
@@ -70,7 +70,7 @@ export function useVoiceCommands(
   };
 
   const containsWakeWord = (text: string) =>
-    normalize(text).includes(normalize(wakeWord));
+    wakeWord ? normalize(text).includes(normalize(wakeWord)) : true;
 
   /* ------------------------ CONFIDENCE MATCHING --------------------------- */
 
@@ -147,7 +147,10 @@ export function useVoiceCommands(
     setTimeout(() => {
       setRecognizedText('');
       setError(null);
-      if (retry && continuousListening) startListening();
+      if (retry) {
+        // Always restart listening after command execution
+        safeRestartListening(500);
+      }
     }, 800);
   };
 
@@ -161,8 +164,15 @@ export function useVoiceCommands(
       return;
     }
 
-    cmd.action();
-    resetAwake(false);
+    try {
+      cmd.action();
+      // Always restart listening after successful command
+      resetAwake(true);
+    } catch (err) {
+      console.error('Error executing command:', err);
+      setError('Command failed');
+      resetAwake(true);
+    }
   };
 
   /* --------------------------- VOICE EVENTS -------------------------------- */
@@ -205,8 +215,8 @@ export function useVoiceCommands(
       return;
     }
 
-    // Process final results
-    if (!isAwakeRef.current && containsWakeWord(spoken)) {
+    // Process final results - direct command recognition (no wake word needed)
+    if (wakeWord && !isAwakeRef.current && containsWakeWord(spoken)) {
       setIsAwake(true);
       isAwakeRef.current = true;
       setRecognizedText('Listening…');
@@ -227,7 +237,8 @@ export function useVoiceCommands(
       return;
     }
 
-    if (isAwakeRef.current) processCommand(spoken);
+    // Direct command recognition without wake word
+    processCommand(spoken);
   });
 
   // Listen for errors
@@ -299,7 +310,7 @@ export function useVoiceCommands(
         continuous: continuousListening,
         requiresOnDeviceRecognition: false,
         addsPunctuation: false,
-        contextualStrings: [wakeWord, ...commands.map(c => c.command)],
+        contextualStrings: wakeWord ? [wakeWord, ...commands.map(c => c.command)] : commands.map(c => c.command),
       });
     } catch (err) {
       console.error('Failed to start listening:', err);
