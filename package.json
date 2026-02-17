@@ -1,7 +1,7 @@
 {
   "name": "batch-maker",
   "main": "expo-router/entry",
-  "version": "1.0.4",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "start": "expo start",
@@ -19,6 +19,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@supabase/supabase-js": "^2.93.3",
     "expo": "~54.0.31",
+    "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.8",
     "expo-build-properties": "~1.0.10",
     "expo-camera": "~17.0.10",

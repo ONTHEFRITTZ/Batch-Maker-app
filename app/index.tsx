@@ -1,12 +1,10 @@
 import type { User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
-import * as WebBrowser from "expo-web-browser";
 import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
-  ImageBackground,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -16,8 +14,6 @@ import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../lib/supabase";
 import { pushToCloud } from "../services/cloudSync";
 
-WebBrowser.maybeCompleteAuthSession();
-
 export default function HomeScreen() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -26,7 +22,6 @@ export default function HomeScreen() {
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Auto-sync function
   const performSync = async (silent: boolean = true) => {
     try {
       console.log("Auto-syncing...");
@@ -53,7 +48,6 @@ export default function HomeScreen() {
       setUser(session?.user ?? null);
       setLoading(false);
 
-      // Sync immediately on sign in
       if (session?.user) {
         performSync(false);
       }
@@ -64,51 +58,53 @@ export default function HomeScreen() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
 
-      // Sync when user signs in
       if (session?.user) {
         performSync(false);
       }
     });
 
-    const handleDeepLink = (event: { url: string }) => {
-      console.log("handleDeepLink FIRED!");
+    const handleDeepLink = async (event: { url: string }) => {
+      console.log("Deep link received:", event.url);
+      
       const url = event.url;
-      console.log("Deep link received:", url);
 
       if (url.includes("#access_token=") || url.includes("?access_token=")) {
-        const paramString = url.includes("#")
-          ? url.split("#")[1]
-          : url.split("?")[1];
-        const params = new URLSearchParams(paramString);
-        const access_token = params.get("access_token");
-        const refresh_token = params.get("refresh_token");
+        try {
+          const urlObj = new URL(url);
+          const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+          const queryParams = urlObj.searchParams;
+          
+          const access_token = queryParams.get("access_token") || hashParams.get("access_token");
+          const refresh_token = queryParams.get("refresh_token") || hashParams.get("refresh_token");
 
-        if (access_token && refresh_token) {
-          console.log("Tokens found in deep link, setting session...");
-          supabase.auth
-            .setSession({
+          if (access_token && refresh_token) {
+            console.log("Setting session from deep link tokens...");
+            const { error } = await supabase.auth.setSession({
               access_token,
               refresh_token,
-            })
-            .then(({ data, error }) => {
-              if (error) {
-                console.error("Error setting session:", error);
-              } else {
-                console.log(
-                  "Session set successfully! User:",
-                  data.user?.email,
-                );
-                router.replace("/");
-              }
-            })
-            .catch((error) => {
-              console.error("Error setting session:", error);
             });
+
+            if (error) {
+              console.error("Error setting session:", error);
+              Alert.alert("Sign In Error", error.message);
+            } else {
+              console.log("Session established successfully");
+            }
+          }
+        } catch (error: any) {
+          console.error("Error processing deep link:", error);
+          Alert.alert("Error", "Failed to complete sign in");
         }
       }
     };
 
     const subscription2 = Linking.addEventListener("url", handleDeepLink);
+
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        handleDeepLink({ url });
+      }
+    });
 
     return () => {
       subscription.unsubscribe();
@@ -116,10 +112,8 @@ export default function HomeScreen() {
     };
   }, []);
 
-  // Set up auto-sync interval when user is signed in
   useEffect(() => {
     if (user) {
-      // Sync every 30 seconds
       syncIntervalRef.current = setInterval(() => {
         performSync(true);
       }, 30000);
@@ -134,55 +128,22 @@ export default function HomeScreen() {
 
   const signInWithGoogle = async () => {
     try {
-      const redirectUrl = "batchmaker://";
-      console.log("Redirect URL:", redirectUrl);
+      console.log("Starting Google OAuth...");
 
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: redirectUrl,
+          redirectTo: "batchmaker://",
           skipBrowserRedirect: false,
-          // CRITICAL FIX: Add query params to force mobile view
-          queryParams: {
-            // This tells Supabase auth to use mobile-optimized layout
-            display: 'touch',
-            // Optional: can also add access_type if needed
-            // access_type: 'offline',
-          },
         },
       });
 
       if (error) {
+        console.error("OAuth error:", error);
         Alert.alert("Error", error.message);
-        return;
-      }
-
-      if (data?.url) {
-        // CRITICAL FIX: Configure WebBrowser for mobile display
-        const result = await WebBrowser.openAuthSessionAsync(
-          data.url,
-          redirectUrl,
-          {
-            // Show toolbar for better UX
-            showInRecents: true,
-            // Use system browser on Android for better compatibility
-            preferEphemeralSession: false,
-            // Enable JavaScript (should be default but explicit is good)
-            enableDefaultShareMenuItem: false,
-            // Control presentation style
-            controlsColor: colors.primary,
-            toolbarColor: colors.surface,
-          }
-        );
-
-        if (result.type === "success" && result.url) {
-          console.log("OAuth successful");
-        } else if (result.type === "cancel") {
-          Alert.alert("Cancelled", "Sign in was cancelled");
-        }
       }
     } catch (error: any) {
-      console.error("Google sign in error:", error);
+      console.error("Sign in error:", error);
       Alert.alert("Error", error.message || "Failed to sign in");
     }
   };
@@ -205,7 +166,6 @@ export default function HomeScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Sign In/Out Button - Top Right */}
       {user ? (
         <View style={styles.topBar}>
           <View style={styles.syncIndicator}>
@@ -227,7 +187,6 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      {/* Logo and Title */}
       <View style={styles.header}>
         <Image
           source={require("../assets/images/splash-alpha.png")}
@@ -240,7 +199,6 @@ export default function HomeScreen() {
         </Text>
       </View>
 
-      {/* Main Content */}
       {!user ? (
         <View style={styles.signInContainer}>
           <TouchableOpacity
@@ -276,8 +234,7 @@ export default function HomeScreen() {
           >
             <Text style={styles.menuButtonText}>View Reports</Text>
           </TouchableOpacity>
-
-       </View>
+        </View>
       )}
     </View>
   );
@@ -287,7 +244,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 24,
-    backgroundImage: require("../assets/images/hero-phone-med.png"),
   },
   topBar: {
     position: "absolute",
