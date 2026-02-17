@@ -134,13 +134,27 @@ export default function HomeScreen() {
         provider: "google",
         options: {
           redirectTo: "batchmaker://",
-          skipBrowserRedirect: false,
+          skipBrowserRedirect: true, // Get URL but don't auto-open
         },
       });
 
       if (error) {
         console.error("OAuth error:", error);
         Alert.alert("Error", error.message);
+        return;
+      }
+
+      if (!data?.url) {
+        Alert.alert("Error", "Failed to get sign-in URL");
+        return;
+      }
+
+      // Manually open the URL in system browser
+      const supported = await Linking.canOpenURL(data.url);
+      if (supported) {
+        await Linking.openURL(data.url);
+      } else {
+        Alert.alert("Error", "Cannot open sign-in page");
       }
     } catch (error: any) {
       console.error("Sign in error:", error);
