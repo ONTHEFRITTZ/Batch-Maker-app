@@ -13,14 +13,23 @@
     "sdkVersion": "54.0.0",
     "jsEngine": "hermes",
     "icon": "./app/assets/images/adaptive-icon.png",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./app/assets/images/batch-maker-alpha.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "android": {
-      "permissions": ["android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
       "package": "com.batchmaker.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./app/assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -48,6 +57,8 @@
     },
     "ios": {
       "bundleIdentifier": "com.batchmaker.app",
+      "buildNumber": "2",
+      "supportsTablet": true,
       "associatedDomains": [
         "applinks:batchmaker.app",
         "applinks:*.batchmaker.app"
@@ -62,6 +73,9 @@
         ],
         "NSMicrophoneUsageDescription": "This app uses the microphone for voice commands.",
         "NSSpeechRecognitionUsageDescription": "This app uses speech recognition for hands-free operation."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "web": {
@@ -78,6 +92,9 @@
       ],
       "expo-build-properties"
     ],
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
       "router": {
         "origin": false

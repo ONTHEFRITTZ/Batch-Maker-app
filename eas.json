@@ -6,13 +6,34 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fjcpscyxrppcderqzgpa.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Pysy-g0nzlg-KJlzvi1f_A_1VOsb5Ql",
+        "EXPO_PUBLIC_API_URL": "https://batchmaker.app"
+      }
+    },
+    "development-simulator": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fjcpscyxrppcderqzgpa.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Pysy-g0nzlg-KJlzvi1f_A_1VOsb5Ql",
+        "EXPO_PUBLIC_API_URL": "https://batchmaker.app"
+      }
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk",
         "autoIncrement": true
+      },
+      "ios": {
+        "simulator": false,
+        "bundleIdentifier": "com.batchmaker.app"
       },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://fjcpscyxrppcderqzgpa.supabase.co",
@@ -24,19 +45,25 @@
       "android": {
         "buildType": "app-bundle",
         "autoIncrement": true
-      }
-      
-    },
-    "development-simulator": {
-      "developmentClient": true,
-      "distribution": "internal",
-      "ios": {
-        "simulator": true
       },
-      "environment": "development"
+      "ios": {
+        "bundleIdentifier": "com.batchmaker.app",
+        "autoIncrement": true
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://fjcpscyxrppcderqzgpa.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_Pysy-g0nzlg-KJlzvi1f_A_1VOsb5Ql",
+        "EXPO_PUBLIC_API_URL": "https://batchmaker.app"
+      }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {
+        "appleId": "elisha.roszell@icloud.com",
+        "ascAppId": "replace-with-app-store-connect-app-id",
+        "appleTeamId": "replace-with-your-team-id"
+      }
+    }
   }
 }
