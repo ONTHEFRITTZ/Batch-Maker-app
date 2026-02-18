@@ -37,8 +37,8 @@ export function useVoiceCommands(
   options: VoiceCommandsOptions = {}
 ) {
   const {
-    wakeWord = null, // Disabled by default - direct command recognition
-    continuousListening = true, // Enable by default
+    wakeWord = null,
+    continuousListening = true,
     commandTimeout = 5000,
     confidenceThreshold = 0.55,
   } = options;
@@ -52,6 +52,7 @@ export function useVoiceCommands(
   const isAwakeRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const restartLockRef = useRef(false);
+  const shouldRestartRef = useRef(true); // NEW: Track if we should auto-restart
 
   const commandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -105,6 +106,7 @@ export function useVoiceCommands(
     watchdogRef.current = setTimeout(() => {
       if (
         continuousListening &&
+        shouldRestartRef.current && // NEW: Check if restart is allowed
         !isListeningRef.current &&
         !isAwakeRef.current
       ) {
@@ -118,7 +120,7 @@ export function useVoiceCommands(
   /* --------------------------- SAFE RESTART -------------------------------- */
 
   const safeRestartListening = async (delay = 800) => {
-    if (restartLockRef.current || GLOBAL_MIC_ACTIVE) return;
+    if (restartLockRef.current || GLOBAL_MIC_ACTIVE || !shouldRestartRef.current) return; // NEW: Check shouldRestart
 
     restartLockRef.current = true;
 
@@ -127,7 +129,10 @@ export function useVoiceCommands(
       try {
         await ExpoSpeechRecognitionModule.stop();
         GLOBAL_MIC_ACTIVE = false;
-        await startListening();
+        
+        if (shouldRestartRef.current) { // NEW: Double-check before restart
+          await startListening();
+        }
       } catch (err) {
         console.error('Failed to restart listening:', err);
         GLOBAL_MIC_ACTIVE = false;
@@ -147,8 +152,7 @@ export function useVoiceCommands(
     setTimeout(() => {
       setRecognizedText('');
       setError(null);
-      if (retry) {
-        // Always restart listening after command execution
+      if (retry && shouldRestartRef.current) { // NEW: Check shouldRestart
         safeRestartListening(500);
       }
     }, 800);
@@ -166,7 +170,6 @@ export function useVoiceCommands(
 
     try {
       cmd.action();
-      // Always restart listening after successful command
       resetAwake(true);
     } catch (err) {
       console.error('Error executing command:', err);
@@ -177,7 +180,6 @@ export function useVoiceCommands(
 
   /* --------------------------- VOICE EVENTS -------------------------------- */
 
-  // Listen for speech start
   useSpeechRecognitionEvent('start', () => {
     setIsListening(true);
     isListeningRef.current = true;
@@ -185,13 +187,13 @@ export function useVoiceCommands(
     if (Platform.OS === 'android') startWatchdog();
   });
 
-  // Listen for speech end
   useSpeechRecognitionEvent('end', () => {
     setIsListening(false);
     isListeningRef.current = false;
     stopWatchdog();
 
-    if (continuousListening && !isAwakeRef.current) {
+    // NEW: Only restart if shouldRestartRef is true
+    if (continuousListening && !isAwakeRef.current && shouldRestartRef.current) {
       clearRef(restartTimeoutRef);
       restartTimeoutRef.current = setTimeout(
         safeRestartListening,
@@ -200,7 +202,6 @@ export function useVoiceCommands(
     }
   });
 
-  // Listen for results
   useSpeechRecognitionEvent('result', (event) => {
     if (!event.results || event.results.length === 0) return;
     
@@ -209,13 +210,11 @@ export function useVoiceCommands(
 
     const spoken = normalize(transcripts[0]);
 
-    // Check for partial results (real-time feedback)
     if (!event.isFinal) {
       setRecognizedText(spoken);
       return;
     }
 
-    // Process final results - direct command recognition (no wake word needed)
     if (wakeWord && !isAwakeRef.current && containsWakeWord(spoken)) {
       setIsAwake(true);
       isAwakeRef.current = true;
@@ -237,18 +236,18 @@ export function useVoiceCommands(
       return;
     }
 
-    // Direct command recognition without wake word
     processCommand(spoken);
   });
 
-  // Listen for errors
   useSpeechRecognitionEvent('error', (event) => {
     setError(event.error || 'Speech error');
     setIsListening(false);
     isListeningRef.current = false;
     GLOBAL_MIC_ACTIVE = false;
     stopWatchdog();
-    if (continuousListening && !isAwakeRef.current) {
+    
+    // NEW: Only restart on error if shouldRestart is true
+    if (continuousListening && !isAwakeRef.current && shouldRestartRef.current) {
       safeRestartListening(1500);
     }
   });
@@ -257,6 +256,7 @@ export function useVoiceCommands(
 
   useEffect(() => {
     return () => {
+      shouldRestartRef.current = false; // NEW: Prevent restart on unmount
       ExpoSpeechRecognitionModule.stop();
       stopWatchdog();
       clearRef(commandTimeoutRef);
@@ -276,7 +276,8 @@ export function useVoiceCommands(
       if (
         prev.match(/inactive|background/) &&
         next === 'active' &&
-        continuousListening
+        continuousListening &&
+        shouldRestartRef.current // NEW: Check shouldRestart
       ) {
         safeRestartListening(500);
       }
@@ -293,7 +294,8 @@ export function useVoiceCommands(
     if (isListeningRef.current || GLOBAL_MIC_ACTIVE) return;
 
     try {
-      // Request permissions first
+      shouldRestartRef.current = true; // NEW: Enable auto-restart
+      
       const { status, granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       
       if (!granted) {
@@ -316,11 +318,16 @@ export function useVoiceCommands(
       console.error('Failed to start listening:', err);
       GLOBAL_MIC_ACTIVE = false;
       setError('Failed to start voice recognition');
-      if (Platform.OS === 'android') safeRestartListening(1200);
+      if (Platform.OS === 'android' && shouldRestartRef.current) {
+        safeRestartListening(1200);
+      }
     }
   };
 
   const stopListening = async () => {
+    // NEW: Disable auto-restart FIRST
+    shouldRestartRef.current = false;
+    
     clearRef(commandTimeoutRef);
     clearRef(restartTimeoutRef);
     clearRef(safeRestartTimeoutRef);
@@ -329,6 +336,7 @@ export function useVoiceCommands(
     setIsAwake(false);
     isAwakeRef.current = false;
     setIsListening(false);
+    isListeningRef.current = false;
 
     try {
       await ExpoSpeechRecognitionModule.stop();
