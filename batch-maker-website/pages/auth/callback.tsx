@@ -26,7 +26,7 @@ export default function AuthCallback() {
         // Check if profile already exists
         const { data: profile } = await supabase
           .from('profiles')
-          .select('id')
+          .select('id, role')
           .eq('id', session.user.id)
           .single()
 
@@ -42,9 +42,15 @@ export default function AuthCallback() {
             trial_started_at: new Date().toISOString(),
             trial_expires_at: trialExpiresAt.toISOString(),
           })
+
+          // New users are free tier — send to account page
+          router.push('/account')
+          return
         }
 
-        router.push('/dashboard')
+        // Existing user — route by role
+        const isPremium = profile.role === 'premium' || profile.role === 'admin'
+        router.push(isPremium ? '/dashboard' : '/account')
       } catch (err) {
         console.error('Unexpected error:', err)
         router.push('/login')

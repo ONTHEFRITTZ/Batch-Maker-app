@@ -13,8 +13,17 @@ export default function Home() {
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession()
+
       if (session) {
-        router.push('/dashboard')
+        // Check role and redirect appropriately
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single()
+
+        const isPremium = profile?.role === 'premium' || profile?.role === 'admin'
+        router.replace(isPremium ? '/dashboard' : '/account')
       } else {
         setLoading(false)
       }

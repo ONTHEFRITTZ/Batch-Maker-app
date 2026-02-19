@@ -10,6 +10,9 @@ import Inventory from '../components/DashboardInventory';
 import Calendar from '../components/DashboardCalendar';
 import Schedule from '../components/DashboardSchedule';
 import Analytics from '../components/DashboardAnalytics';
+
+import { hasDashboardAccess, getTierLabel } from '../lib/userTier';
+
 import type {
   Profile,
   Workflow,
@@ -45,7 +48,6 @@ export default function EnhancedDashboard() {
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Read activeView from URL params, default to 'overview'
   const activeView = (searchParams.get('view') as 'overview' | 'workflows' | 'inventory' | 'calendar' | 'schedule' | 'analytics') || 'overview';
 
   useEffect(() => {
@@ -69,7 +71,6 @@ export default function EnhancedDashboard() {
   useEffect(() => {
     if (!user) return;
 
-    // Real-time subscriptions
     const inventoryChannel = supabase
       .channel('inventory-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory_items', filter: `user_id=eq.${user.id}` },
@@ -84,24 +85,14 @@ export default function EnhancedDashboard() {
 
     const workflowChannel = supabase
       .channel('workflow-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'workflows'
-      }, (payload) => {
-        console.log('Workflow changed:', payload);
-        fetchWorkflows(user.id);
-      })
-     .subscribe();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'workflows' },
+        () => fetchWorkflows(user.id))
+      .subscribe();
 
     const batchChannel = supabase
       .channel('batch-changes')
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'batches',
-        filter: `user_id=eq.${user.id}`
-      }, () => fetchBatches(user.id))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'batches', filter: `user_id=eq.${user.id}` },
+        () => fetchBatches(user.id))
       .subscribe();
 
     return () => {
@@ -126,27 +117,43 @@ export default function EnhancedDashboard() {
 
   async function fetchData(userId: string) {
     try {
-      await fetchProfile(userId);
-      
-      // Check if user is premium after profile is loaded
-      const profileData = await new Promise<any>((resolve) => {
-        supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', userId)
-          .single()
-          .then(({ data }) => resolve(data));
-      });
+      // Single profile fetch — used for both access check and state
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-      const premium = profileData?.role === 'premium' || profileData?.role === 'admin';
-      
-      if (!premium) {
-        // Redirect free users to account page
+      setProfile(profileData);
+
+      if (!hasDashboardAccess(profileData)) {
         window.location.href = '/account';
         return;
       }
 
-      // Only fetch dashboard data for premium users
+      // Fetch network members for premium/admin/trial users
+      const { data: membersData } = await supabase
+        .from('networks')
+        .select('*')
+        .eq('owner_id', userId);
+
+      if (membersData && membersData.length > 0) {
+        const userIds = membersData.map((m: any) => m.user_id).filter(Boolean);
+        if (userIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('id, email, device_name')
+            .in('id', userIds);
+
+          setNetworkMembers(membersData.map((member: any) => ({
+            ...member,
+            profiles: profilesData?.find((p: any) => p.id === member.user_id)
+          })));
+        } else {
+          setNetworkMembers(membersData);
+        }
+      }
+
       await Promise.all([
         fetchLocations(userId),
         fetchWorkflows(userId),
@@ -175,51 +182,8 @@ export default function EnhancedDashboard() {
     
     if (!error && data) {
       setLocations(data);
-      // Set default location as selected if it exists
-      const defaultLocation = data.find(loc => loc.is_default);
-      if (defaultLocation) {
-        setSelectedLocationId(defaultLocation.id);
-      }
-    }
-  }
-
-  async function fetchProfile(userId: string) {
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    setProfile(profileData);
-
-    const isPremium = profileData?.role === 'premium' || profileData?.role === 'admin';
-    if (isPremium) {
-      // Try alternative query - fetch separately if join fails
-      const { data: membersData, error: membersError } = await supabase
-        .from('networks')
-        .select('*')
-        .eq('owner_id', userId);
-
-      if (membersData && !membersError) {
-        // Fetch profiles separately and merge
-        const userIds = membersData.map(m => m.user_id).filter(Boolean);
-        if (userIds.length > 0) {
-          const { data: profilesData } = await supabase
-            .from('profiles')
-            .select('id, email, device_name')
-            .in('id', userIds);
-
-          // Merge profiles into members
-          const membersWithProfiles = membersData.map(member => ({
-            ...member,
-            profiles: profilesData?.find(p => p.id === member.user_id)
-          }));
-          
-          setNetworkMembers(membersWithProfiles || []);
-        } else {
-          setNetworkMembers(membersData || []);
-        }
-      }
+      const defaultLocation = data.find((loc: any) => loc.is_default);
+      if (defaultLocation) setSelectedLocationId(defaultLocation.id);
     }
   }
 
@@ -263,12 +227,8 @@ export default function EnhancedDashboard() {
     }
     
     const { data, error } = await query.order('timestamp', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching batch reports:', error);
-    }
-    
-    setBatchReports(data || []);
+    if (error) console.error('Error fetching batch reports:', error);
+    else setBatchReports(data || []);
   }
 
   async function fetchBatchTemplates(userId: string) {
@@ -291,7 +251,6 @@ export default function EnhancedDashboard() {
     }
     
     const { data, error } = await query.order('name');
-    
     if (error) console.error('Error fetching inventory:', error);
     else setInventoryItems(data || []);
   }
@@ -325,7 +284,6 @@ export default function EnhancedDashboard() {
     }
     
     const { data, error } = await query.order('created_at', { ascending: false });
-    
     if (error) console.error('Error fetching shopping list:', error);
     else setShoppingList(data || []);
   }
@@ -341,7 +299,6 @@ export default function EnhancedDashboard() {
     }
     
     const { data, error } = await query.order('scheduled_date');
-    
     if (error) console.error('Error fetching scheduled batches:', error);
     else setScheduledBatches(data || []);
   }
@@ -351,7 +308,6 @@ export default function EnhancedDashboard() {
     window.location.href = '/';
   }
 
-  // Helper function to change view and update URL
   function changeView(view: 'overview' | 'workflows' | 'inventory' | 'calendar' | 'schedule' | 'analytics') {
     router.push(`/dashboard?view=${view}`);
   }
@@ -364,7 +320,9 @@ export default function EnhancedDashboard() {
     );
   }
 
-  const isPremium = profile?.role === 'premium' || profile?.role === 'admin';
+  // ── Single source of truth for this render ──────────────────
+  const isPremium = hasDashboardAccess(profile);
+  const tierLabel = getTierLabel(profile);
 
   const sharedProps = {
     user,
@@ -391,7 +349,7 @@ export default function EnhancedDashboard() {
 
   return (
     <div className="min-h-screen dashboard-bg">
-      {/* Header - z-50 */}
+      {/* Header */}
       <header className="glass-card border-b border-gray-200 py-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 flex justify-between items-center">
           <div className="flex items-center gap-4">
@@ -402,12 +360,11 @@ export default function EnhancedDashboard() {
             />
             <div>
               <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-              {isPremium && <p className="text-sm text-gray-500 mt-1">Premium Account</p>}
+              <p className="text-sm text-gray-500 mt-1">{tierLabel}</p>
             </div>
           </div>
           
           <div className="flex items-center gap-4">
-            {/* Location Selector */}
             {locations.length > 0 && (
               <select
                 value={selectedLocationId}
@@ -415,7 +372,7 @@ export default function EnhancedDashboard() {
                 className="px-4 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50 transition-colors focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">All Locations</option>
-                {locations.map(location => (
+                {locations.map((location: any) => (
                   <option key={location.id} value={location.id}>
                     {location.name}{location.is_default ? ' (Default)' : ''}
                   </option>
@@ -462,49 +419,22 @@ export default function EnhancedDashboard() {
         </div>
       </header>
 
-      {/* Navigation Tabs - z-40 */}
-      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200 glass-card sticky top-[72px] z-40 rounded-b-lg position-fixed">
+      {/* Navigation Tabs */}
+      <div className="max-w-7xl mx-auto px-6 border-b-2 border-gray-200 glass-card sticky top-[72px] z-40 rounded-b-lg">
         <div className="flex gap-2">
-          <button
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
-              activeView === 'overview'
-                ? 'text-blue-600 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700'
-            }`}
-            onClick={() => changeView('overview')}
-          >
-            Overview
-          </button>
-          <button
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
-              activeView === 'workflows'
-                ? 'text-blue-600 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700'
-            }`}
-            onClick={() => changeView('workflows')}
-          >
-            Workflows
-          </button>
-          <button
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
-              activeView === 'inventory'
-                ? 'text-blue-600 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700'
-            }`}
-            onClick={() => changeView('inventory')}
-          >
-            Inventory
-          </button>
-          <button
-            className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${
-              activeView === 'calendar'
-                ? 'text-blue-600 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700'
-            }`}
-            onClick={() => changeView('calendar')}
-          >
-            Calendar
-          </button>
+          {(['overview', 'workflows', 'inventory', 'calendar'] as const).map((view) => (
+            <button
+              key={view}
+              className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap capitalize ${
+                activeView === view
+                  ? 'text-blue-600 border-blue-600'
+                  : 'text-gray-500 border-transparent hover:text-gray-700'
+              }`}
+              onClick={() => changeView(view)}
+            >
+              {view.charAt(0).toUpperCase() + view.slice(1)}
+            </button>
+          ))}
           {isPremium && (
             <button
               className={`px-6 py-4 text-sm font-medium transition-colors border-b-2 -mb-0.5 whitespace-nowrap ${

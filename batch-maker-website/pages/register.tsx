@@ -33,7 +33,8 @@ export default function Register() {
       setError(signUpError.message)
       setLoading(false)
     } else {
-      router.push('/dashboard')
+      // New registrations are always free tier — send to account page
+      router.push('/account')
     }
   }
 
