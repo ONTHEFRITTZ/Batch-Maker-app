@@ -1,10 +1,18 @@
+// ============================================
+// FILE: app/_layout.tsx
+// Added ClockInScreen to Stack navigator.
+// Removed broken syncService import.
+// ============================================
+
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
 import * as Linking from 'expo-linking';
 import CustomHeader from './components/CustomHeader';
-import { initializeDatabase } from '../services/database';
+import { syncFromServer } from '../services/database';
 import { initializeReports } from '../services/reports';
-import { syncService } from '../services/sync';
+import { flushOfflineQueue } from '../services/offlineQueue';
+// initializeDatabase is called via useAppInit in the index screen
+// _layout only handles foreground sync flush
 import { ThemeProvider } from '../contexts/ThemeContext';
 
 // Global deep link listener
@@ -18,23 +26,15 @@ export const unstable_settings = {
 
 export default function Layout() {
   useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        console.log('Initializing app...');
-        await initializeDatabase();
-        console.log('Database initialized');
+    // Re-flush queue whenever app returns to foreground
+    // (init is handled by useAppInit in the index screen)
+    initializeReports().catch(() => {});
+    const { AppState } = require('react-native');
+    const sub = AppState.addEventListener('change', (state: string) => {
+      if (state === 'active') flushOfflineQueue().catch(() => {});
+    });
 
-        await initializeReports();
-        console.log('Reports initialized');
-
-        await syncService.initialize();
-        console.log('Sync service initialized');
-      } catch (error) {
-        console.error('Error initializing app:', error);
-      }
-    };
-
-    initializeApp();
+    return () => sub.remove();
   }, []);
 
   return (
@@ -60,51 +60,38 @@ export default function Layout() {
         />
 
         <Stack.Screen
+          name="screens/ClockInScreen"
+          options={{ headerShown: true, title: 'Clock In / Out' }}
+        />
+
+        <Stack.Screen
           name="screens/WorkflowBuilderScreen"
-          options={{
-            headerShown: true,
-            title: 'Create Workflow',
-          }}
+          options={{ headerShown: true, title: 'Create Workflow' }}
         />
 
         <Stack.Screen
           name="screens/RecipeParserScreen"
-          options={{
-            headerShown: true,
-            title: 'Import Recipe',
-          }}
+          options={{ headerShown: true, title: 'Import Recipe' }}
         />
 
         <Stack.Screen
           name="screens/WorkflowEditorScreen"
-          options={{
-            headerShown: true,
-            title: 'Edit Workflow',
-          }}
+          options={{ headerShown: true, title: 'Edit Workflow' }}
         />
 
         <Stack.Screen
           name="screens/ReportsScreen"
-          options={{
-            headerShown: true,
-            title: 'Reports',
-          }}
+          options={{ headerShown: true, title: 'Reports' }}
         />
 
         <Stack.Screen
           name="screens/EnvironmentalReportScreen"
-          options={{
-            headerShown: true,
-            title: 'Environmental Report',
-          }}
+          options={{ headerShown: true, title: 'Environmental Report' }}
         />
 
         <Stack.Screen
           name="screens/URLImportScreen"
-          options={{
-            headerShown: true,
-            title: 'Import from URL',
-          }}
+          options={{ headerShown: true, title: 'Import from URL' }}
         />
       </Stack>
     </ThemeProvider>

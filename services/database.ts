@@ -1,10 +1,11 @@
 // ============================================
 // FILE: services/database.ts
-// SUPABASE VERSION - Works with existing schema
-// Handles snake_case <-> camelCase conversion
+// Location-aware: scopes to location_id when clocked in, user_id when solo
 // ============================================
 
-import { supabase } from './supabaseClient';
+import { supabase } from '../lib/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { enqueue, isSupabaseNetworkError } from './offlineQueue';
 
 export interface Step {
   id: string;
@@ -39,7 +40,7 @@ export interface Timer {
   id: string;
   stepId: string;
   startedAt: number;
-  duration: number; // in seconds
+  duration: number;
   acknowledged: boolean;
 }
 
@@ -60,9 +61,102 @@ export interface Batch {
   updated_at?: string;
 }
 
-// In-memory cache
+export interface UserProfile {
+  id: string;
+  device_name?: string;
+  location_id?: string;
+  email?: string;
+  role?: string;
+  subscription_status?: string;
+}
+
+// ============================================
+// IN-MEMORY CACHE
+// ============================================
+
 let cachedWorkflows: Workflow[] = [];
 let cachedBatches: Batch[] = [];
+
+// ============================================
+// ASYNCSTORAGE PERSISTENCE KEYS
+// Workflows are persisted locally so the UI
+// shows stale-while-revalidate on every launch
+// instead of a blank "no workflows" flash.
+// ============================================
+
+const STORAGE_KEY_WORKFLOWS = '@db_workflows_v2';
+const STORAGE_KEY_BATCHES   = '@db_batches_v2';
+
+async function persistWorkflows(workflows: Workflow[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY_WORKFLOWS, JSON.stringify(workflows));
+  } catch { /* non-fatal */ }
+}
+
+async function loadPersistedWorkflows(): Promise<Workflow[]> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY_WORKFLOWS);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+async function persistBatches(batches: Batch[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY_BATCHES, JSON.stringify(batches));
+  } catch { /* non-fatal */ }
+}
+
+async function loadPersistedBatches(): Promise<Batch[]> {
+  try {
+    const raw = await AsyncStorage.getItem(STORAGE_KEY_BATCHES);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+let cachedProfile: UserProfile | null = null;
+let profileLastFetched = 0;
+const PROFILE_CACHE_TTL_MS = 10_000;
+
+// ============================================
+// PROFILE MANAGEMENT
+// ============================================
+
+async function getProfile(forceRefresh = false): Promise<UserProfile | null> {
+  const now = Date.now();
+  if (!forceRefresh && cachedProfile && (now - profileLastFetched) < PROFILE_CACHE_TTL_MS) {
+    return cachedProfile;
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) { cachedProfile = null; return null; }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, device_name, location_id, email, role, subscription_status')
+    .eq('id', user.id)
+    .single();
+
+  if (error || !data) {
+    cachedProfile = { id: user.id, email: user.email };
+  } else {
+    cachedProfile = data as UserProfile;
+  }
+  profileLastFetched = now;
+  return cachedProfile;
+}
+
+async function updateProfile(updates: Partial<UserProfile>): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { error } = await supabase
+    .from('profiles')
+    .upsert({ id: user.id, ...updates, updated_at: new Date().toISOString() });
+
+  if (error) throw error;
+
+  if (cachedProfile) Object.assign(cachedProfile, updates);
+  profileLastFetched = 0;
+}
 
 // ============================================
 // DEVICE MANAGEMENT
@@ -74,31 +168,53 @@ export async function getDeviceId(): Promise<string> {
 }
 
 export async function getDeviceName(): Promise<string> {
+  const profile = await getProfile();
+  if (profile?.device_name) return profile.device_name;
   const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) return 'Unnamed Station';
-  
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('device_name')
-    .eq('id', user.id)
-    .single();
-  
-  return profile?.device_name || user.email || 'Unnamed Station';
+  return user?.email || 'Unnamed Station';
 }
 
 export async function setDeviceName(name: string): Promise<void> {
+  await updateProfile({ device_name: name });
+}
+
+// ============================================
+// LOCATION / CLOCK-IN STATE
+// ============================================
+
+export async function getActiveLocationId(): Promise<string | null> {
+  const profile = await getProfile();
+  return profile?.location_id ?? null;
+}
+
+/**
+ * Called after successful clock-in. Sets profile.location_id and reloads
+ * all data under the new location scope so batches are immediately visible.
+ */
+export async function setActiveLocation(locationId: string): Promise<void> {
+  await updateProfile({ location_id: locationId });
+  await Promise.all([getWorkflows(), _refreshBatches()]);
+}
+
+/**
+ * Called after clock-out. Clears profile.location_id and reverts all
+ * queries to solo (user_id) scope.
+ */
+export async function clearActiveLocation(): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) throw new Error('Not authenticated');
-  
-  await supabase
+  if (!user) return;
+
+  const { error } = await supabase
     .from('profiles')
-    .upsert({
-      id: user.id,
-      device_name: name,
-      updated_at: new Date().toISOString(),
-    });
+    .update({ location_id: null, updated_at: new Date().toISOString() })
+    .eq('id', user.id);
+
+  if (error) throw error;
+
+  if (cachedProfile) cachedProfile.location_id = undefined;
+  profileLastFetched = 0;
+
+  await Promise.all([getWorkflows(), _refreshBatches()]);
 }
 
 // ============================================
@@ -108,25 +224,34 @@ export async function setDeviceName(name: string): Promise<void> {
 export async function initializeDatabase(): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    
     if (!user) {
-      console.log('No user authenticated');
       cachedWorkflows = [];
       cachedBatches = [];
+      cachedProfile = null;
       return;
     }
 
-    const [workflows, batches] = await Promise.all([
+    // ── Stale-while-revalidate ──────────────────────────────────────────────
+    // Load persisted data immediately so the UI never shows a blank "no
+    // workflows" flash on launch — even before Supabase responds.
+    const [persistedWorkflows, persistedBatches] = await Promise.all([
+      loadPersistedWorkflows(),
+      loadPersistedBatches(),
+    ]);
+    if (persistedWorkflows.length > 0) cachedWorkflows = persistedWorkflows;
+    if (persistedBatches.length > 0)   cachedBatches   = persistedBatches;
+
+    // Then fetch fresh from Supabase in the background.
+    // getWorkflows() and _refreshBatches() will update the cache
+    // and persist the fresh data automatically.
+    await getProfile(true);
+    const [freshWorkflows, freshBatches] = await Promise.all([
       getWorkflows(),
       _refreshBatches(),
     ]);
-
-    cachedWorkflows = workflows;
-    cachedBatches = batches;
-
-    console.log(`Loaded ${workflows.length} workflows and ${batches.length} batches`);
+    console.log(`[DB] Loaded ${freshWorkflows.length} workflows, ${freshBatches.length} batches`);
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('[DB] Error initializing:', error);
   }
 }
 
@@ -137,25 +262,28 @@ export async function initializeDatabase(): Promise<void> {
 export async function getWorkflows(): Promise<Workflow[]> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      console.warn('Not authenticated');
-      return [];
-    }
+    if (!user) return [];
 
-    const { data, error } = await supabase
+    const profile = await getProfile();
+    const locationId = profile?.location_id;
+
+    let query = supabase
       .from('workflows')
       .select('*')
-      .eq('user_id', user.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching workflows:', error);
-      return cachedWorkflows;
+    if (locationId) {
+      query = query.eq('location_id', locationId);
+    } else {
+      query = query.eq('user_id', user.id);
     }
 
+    const { data, error } = await query;
+    if (error) { console.error('Error fetching workflows:', error); return cachedWorkflows; }
+
     cachedWorkflows = data || [];
+    persistWorkflows(cachedWorkflows); // keep local cache fresh
     return cachedWorkflows;
   } catch (err) {
     console.error('Error in getWorkflows:', err);
@@ -166,36 +294,33 @@ export async function getWorkflows(): Promise<Workflow[]> {
 export async function setWorkflows(newWorkflows: Workflow[]): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
-    
     if (!user) throw new Error('Must be signed in');
 
     const currentWorkflows = await getWorkflows();
     const newWorkflowIds = new Set(newWorkflows.map(w => w.id));
-    
-    const workflowsToDelete = currentWorkflows.filter(w => !newWorkflowIds.has(w.id));
-    for (const workflow of workflowsToDelete) {
-      await supabase
-        .from('workflows')
-        .delete()
-        .eq('id', workflow.id)
-        .eq('user_id', user.id);
+    const toDelete = currentWorkflows.filter(w => !newWorkflowIds.has(w.id));
+
+    for (const workflow of toDelete) {
+      await supabase.from('workflows').delete().eq('id', workflow.id).eq('user_id', user.id);
     }
 
+    const profile = await getProfile();
+    const locationId = profile?.location_id ?? null;
+
     for (const workflow of newWorkflows) {
-      await supabase
-        .from('workflows')
-        .upsert({
-          id: workflow.id,
-          name: workflow.name,
-          steps: workflow.steps,
-          user_id: user.id,
-          claimed_by: workflow.claimedBy || null,
-          claimed_by_name: workflow.claimedByName || null,
-          archived: workflow.archived || false,
-          archived_at: workflow.archived_at || null,
-          show_ferment_prompt: workflow.show_ferment_prompt ?? true,
-          updated_at: new Date().toISOString(),
-        });
+      await supabase.from('workflows').upsert({
+        id: workflow.id,
+        name: workflow.name,
+        steps: workflow.steps,
+        user_id: user.id,
+        location_id: workflow.location_id ?? locationId,
+        claimed_by: workflow.claimedBy || null,
+        claimed_by_name: workflow.claimedByName || null,
+        archived: workflow.archived || false,
+        archived_at: workflow.archived_at || null,
+        show_ferment_prompt: workflow.show_ferment_prompt ?? true,
+        updated_at: new Date().toISOString(),
+      });
     }
 
     cachedWorkflows = newWorkflows;
@@ -207,17 +332,18 @@ export async function setWorkflows(newWorkflows: Workflow[]): Promise<void> {
 
 export async function addWorkflow(newWorkflow: Workflow): Promise<void> {
   try {
-    console.log('📥 addWorkflow called:', newWorkflow.name);
-    
     const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) throw new Error('Must be signed in to create workflows');
+    if (!user) throw new Error('Must be signed in');
+
+    const profile = await getProfile();
+    const locationId = newWorkflow.location_id ?? profile?.location_id ?? null;
 
     const { error } = await supabase.from('workflows').insert({
       id: newWorkflow.id,
       name: newWorkflow.name,
       steps: newWorkflow.steps,
       user_id: user.id,
+      location_id: locationId,
       claimed_by: newWorkflow.claimedBy || null,
       claimed_by_name: newWorkflow.claimedByName || null,
       archived: newWorkflow.archived || false,
@@ -227,10 +353,24 @@ export async function addWorkflow(newWorkflow: Workflow): Promise<void> {
       updated_at: new Date().toISOString(),
     });
 
-    if (error) throw error;
-
-    console.log('✅ Workflow saved');
-    cachedWorkflows.push({ ...newWorkflow, user_id: user.id });
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        await enqueue({ type: 'insert', table: 'workflows', payload: {
+          id: newWorkflow.id, name: newWorkflow.name, steps: newWorkflow.steps,
+          user_id: user.id, location_id: locationId,
+          claimed_by: newWorkflow.claimedBy || null,
+          claimed_by_name: newWorkflow.claimedByName || null,
+          archived: newWorkflow.archived || false,
+          archived_at: newWorkflow.archived_at || null,
+          show_ferment_prompt: newWorkflow.show_ferment_prompt ?? true,
+          created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        }});
+      } else {
+        throw error;
+      }
+    }
+    cachedWorkflows.push({ ...newWorkflow, user_id: user.id, location_id: locationId ?? undefined });
+    persistWorkflows(cachedWorkflows);
   } catch (err) {
     console.error('Error adding workflow:', err);
     throw err;
@@ -249,6 +389,7 @@ export async function resetWorkflows(): Promise<void> {
       .is('deleted_at', null);
 
     cachedWorkflows = [];
+    await AsyncStorage.removeItem(STORAGE_KEY_WORKFLOWS);
   } catch (err) {
     console.error('Error resetting workflows:', err);
     throw err;
@@ -258,79 +399,34 @@ export async function resetWorkflows(): Promise<void> {
 export async function markStepCompleted(workflowId: string, stepId: string, completed: boolean): Promise<void> {
   const workflow = cachedWorkflows.find(w => w.id === workflowId);
   if (!workflow) return;
-  
   const step = workflow.steps.find(s => s.id === stepId);
   if (!step) return;
-  
   step.completed = completed;
-  
-  await supabase
-    .from('workflows')
-    .update({
-      steps: workflow.steps,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', workflowId);
+  await supabase.from('workflows').update({ steps: workflow.steps, updated_at: new Date().toISOString() }).eq('id', workflowId);
 }
 
 export async function archiveWorkflow(workflowId: string): Promise<void> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Must be signed in');
-
-    const { error } = await supabase
-      .from('workflows')
-      .update({
-        archived: true,
-        archived_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', workflowId)
-      .eq('user_id', user.id);
-
+    const { error } = await supabase.from('workflows').update({
+      archived: true, archived_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).eq('id', workflowId);
     if (error) throw error;
-
-    const workflow = cachedWorkflows.find(w => w.id === workflowId);
-    if (workflow) {
-      workflow.archived = true;
-      workflow.archived_at = new Date().toISOString();
-    }
-
+    const wf = cachedWorkflows.find(w => w.id === workflowId);
+    if (wf) { wf.archived = true; wf.archived_at = new Date().toISOString(); }
     await getWorkflows();
-  } catch (err) {
-    console.error('Error archiving workflow:', err);
-    throw err;
-  }
+  } catch (err) { console.error('Error archiving workflow:', err); throw err; }
 }
 
 export async function unarchiveWorkflow(workflowId: string): Promise<void> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Must be signed in');
-
-    const { error } = await supabase
-      .from('workflows')
-      .update({
-        archived: false,
-        archived_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', workflowId)
-      .eq('user_id', user.id);
-
+    const { error } = await supabase.from('workflows').update({
+      archived: false, archived_at: null, updated_at: new Date().toISOString(),
+    }).eq('id', workflowId);
     if (error) throw error;
-
-    const workflow = cachedWorkflows.find(w => w.id === workflowId);
-    if (workflow) {
-      workflow.archived = false;
-      workflow.archived_at = undefined;
-    }
-
+    const wf = cachedWorkflows.find(w => w.id === workflowId);
+    if (wf) { wf.archived = false; wf.archived_at = undefined; }
     await getWorkflows();
-  } catch (err) {
-    console.error('Error unarchiving workflow:', err);
-    throw err;
-  }
+  } catch (err) { console.error('Error unarchiving workflow:', err); throw err; }
 }
 
 // ============================================
@@ -341,57 +437,27 @@ export async function claimWorkflow(workflowId: string): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Must be signed in');
-
     const deviceName = await getDeviceName();
-
-    const { error } = await supabase
-      .from('workflows')
-      .update({
-        claimed_by: user.id,
-        claimed_by_name: deviceName,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', workflowId);
-
+    const { error } = await supabase.from('workflows').update({
+      claimed_by: user.id, claimed_by_name: deviceName, updated_at: new Date().toISOString(),
+    }).eq('id', workflowId);
     if (error) throw error;
-
-    const workflow = cachedWorkflows.find(w => w.id === workflowId);
-    if (workflow) {
-      workflow.claimedBy = user.id;
-      workflow.claimedByName = deviceName;
-    }
-  } catch (err) {
-    console.error('Error claiming workflow:', err);
-    throw err;
-  }
+    const wf = cachedWorkflows.find(w => w.id === workflowId);
+    if (wf) { wf.claimedBy = user.id; wf.claimedByName = deviceName; }
+  } catch (err) { console.error('Error claiming workflow:', err); throw err; }
 }
 
 export async function unclaimWorkflow(workflowId: string): Promise<void> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('Must be signed in');
-
-    const { error } = await supabase
-      .from('workflows')
-      .update({
-        claimed_by: null,
-        claimed_by_name: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', workflowId)
-      .eq('claimed_by', user.id);
-
+    const { error } = await supabase.from('workflows').update({
+      claimed_by: null, claimed_by_name: null, updated_at: new Date().toISOString(),
+    }).eq('id', workflowId).eq('claimed_by', user.id);
     if (error) throw error;
-
-    const workflow = cachedWorkflows.find(w => w.id === workflowId);
-    if (workflow) {
-      workflow.claimedBy = undefined;
-      workflow.claimedByName = undefined;
-    }
-  } catch (err) {
-    console.error('Error unclaiming workflow:', err);
-    throw err;
-  }
+    const wf = cachedWorkflows.find(w => w.id === workflowId);
+    if (wf) { wf.claimedBy = undefined; wf.claimedByName = undefined; }
+  } catch (err) { console.error('Error unclaiming workflow:', err); throw err; }
 }
 
 export async function getClaimedWorkflows(): Promise<Workflow[]> {
@@ -407,8 +473,7 @@ export async function getUnclaimedWorkflows(): Promise<Workflow[]> {
 export async function isWorkflowClaimedByMe(workflowId: string): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
-  const workflow = cachedWorkflows.find(w => w.id === workflowId);
-  return workflow?.claimedBy === user.id;
+  return cachedWorkflows.find(w => w.id === workflowId)?.claimedBy === user.id;
 }
 
 // ============================================
@@ -443,18 +508,22 @@ export async function _refreshBatches(): Promise<Batch[]> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return [];
 
-    const { data, error } = await supabase
-      .from('batches')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
+    const profile = await getProfile();
+    const locationId = profile?.location_id;
 
-    if (error) {
-      console.error('Error fetching batches:', error);
-      return cachedBatches;
+    let query = supabase.from('batches').select('*').order('created_at', { ascending: false });
+
+    if (locationId) {
+      query = query.eq('location_id', locationId);
+    } else {
+      query = query.eq('user_id', user.id);
     }
 
+    const { data, error } = await query;
+    if (error) { console.error('Error fetching batches:', error); return cachedBatches; }
+
     cachedBatches = (data || []).map(dbBatchToApp);
+    persistBatches(cachedBatches); // keep local cache fresh
     return cachedBatches;
   } catch (err) {
     console.error('Error refreshing batches:', err);
@@ -470,8 +539,8 @@ export function getBatch(batchId: string): Batch | undefined {
 export async function createBatch(
   workflowId: string,
   mode: 'bake-today' | 'cold-ferment',
-  unitsPerBatch: number = 1,
-  batchSizeMultiplier: number = 1
+  unitsPerBatch = 1,
+  batchSizeMultiplier = 1
 ): Promise<Batch> {
   try {
     const { data: { user } } = await supabase.auth.getUser();
@@ -480,38 +549,36 @@ export async function createBatch(
     const workflow = cachedWorkflows.find(w => w.id === workflowId);
     if (!workflow) throw new Error('Workflow not found');
 
+    const profile = await getProfile();
+    const locationId = workflow.location_id ?? profile?.location_id ?? null;
+
     const batch: Batch = {
       id: `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      workflowId,
-      name: workflow.name,
-      mode,
-      unitsPerBatch,
-      batchSizeMultiplier,
-      currentStepIndex: 0,
-      completedSteps: [],
-      activeTimers: [],
-      createdAt: Date.now(),
+      workflowId, name: workflow.name, mode, unitsPerBatch, batchSizeMultiplier,
+      currentStepIndex: 0, completedSteps: [], activeTimers: [], createdAt: Date.now(),
     };
 
-    const { error } = await supabase.from('batches').insert({
-      id: batch.id,
-      workflow_id: batch.workflowId,
-      name: batch.name,
-      mode: batch.mode,
-      units_per_batch: batch.unitsPerBatch,
-      batch_size_multiplier: batch.batchSizeMultiplier,
-      current_step_index: batch.currentStepIndex,
-      completed_steps: batch.completedSteps,
-      active_timers: batch.activeTimers,
-      user_id: user.id,
-      location_id: workflow.location_id || null,
-      created_at: new Date(batch.createdAt).toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+    const insertPayload = {
+      id: batch.id, workflow_id: batch.workflowId, name: batch.name, mode: batch.mode,
+      units_per_batch: batch.unitsPerBatch, batch_size_multiplier: batch.batchSizeMultiplier,
+      current_step_index: 0, completed_steps: [], active_timers: [],
+      user_id: user.id, location_id: locationId,
+      created_at: new Date(batch.createdAt).toISOString(), updated_at: new Date().toISOString(),
+    };
 
-    if (error) throw error;
+    // Always add to local cache first — works offline
+    cachedBatches.push({ ...batch, user_id: user.id, location_id: locationId ?? undefined });
+    persistBatches(cachedBatches);
 
-    cachedBatches.push({ ...batch, user_id: user.id });
+    const { error } = await supabase.from('batches').insert(insertPayload);
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        await enqueue({ type: 'insert', table: 'batches', payload: insertPayload });
+      } else {
+        throw error;
+      }
+    }
+
     return batch;
   } catch (err) {
     console.error('Error creating batch:', err);
@@ -529,36 +596,35 @@ export async function duplicateBatch(batchId: string): Promise<Batch> {
 
     const newBatch: Batch = {
       id: `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      workflowId: original.workflowId,
-      name: original.name,
-      mode: original.mode,
-      unitsPerBatch: original.unitsPerBatch,
-      batchSizeMultiplier: original.batchSizeMultiplier,
-      currentStepIndex: 0,
-      completedSteps: [],
-      activeTimers: [],
-      createdAt: Date.now(),
+      workflowId: original.workflowId, name: original.name, mode: original.mode,
+      unitsPerBatch: original.unitsPerBatch, batchSizeMultiplier: original.batchSizeMultiplier,
+      currentStepIndex: 0, completedSteps: [], activeTimers: [], createdAt: Date.now(),
     };
 
     const { error } = await supabase.from('batches').insert({
-      id: newBatch.id,
-      workflow_id: newBatch.workflowId,
-      name: newBatch.name,
-      mode: newBatch.mode,
-      units_per_batch: newBatch.unitsPerBatch,
-      batch_size_multiplier: newBatch.batchSizeMultiplier,
-      current_step_index: newBatch.currentStepIndex,
-      completed_steps: newBatch.completedSteps,
-      active_timers: newBatch.activeTimers,
-      user_id: user.id,
-      location_id: original.location_id || null,
-      created_at: new Date(newBatch.createdAt).toISOString(),
-      updated_at: new Date().toISOString(),
+      id: newBatch.id, workflow_id: newBatch.workflowId, name: newBatch.name, mode: newBatch.mode,
+      units_per_batch: newBatch.unitsPerBatch, batch_size_multiplier: newBatch.batchSizeMultiplier,
+      current_step_index: 0, completed_steps: [], active_timers: [],
+      user_id: user.id, location_id: original.location_id || null,
+      created_at: new Date(newBatch.createdAt).toISOString(), updated_at: new Date().toISOString(),
     });
 
-    if (error) throw error;
+    if (error) {
+      if (isSupabaseNetworkError(error)) {
+        await enqueue({ type: 'insert', table: 'batches', payload: {
+          id: newBatch.id, workflow_id: newBatch.workflowId, name: newBatch.name, mode: newBatch.mode,
+          units_per_batch: newBatch.unitsPerBatch, batch_size_multiplier: newBatch.batchSizeMultiplier,
+          current_step_index: 0, completed_steps: [], active_timers: [],
+          user_id: user.id, location_id: original.location_id || null,
+          created_at: new Date(newBatch.createdAt).toISOString(), updated_at: new Date().toISOString(),
+        }});
+      } else {
+        throw error;
+      }
+    }
 
-    cachedBatches.push({ ...newBatch, user_id: user.id });
+    cachedBatches.push({ ...newBatch, user_id: user.id, location_id: original.location_id });
+    persistBatches(cachedBatches);
     return newBatch;
   } catch (err) {
     console.error('Error duplicating batch:', err);
@@ -570,38 +636,16 @@ export async function renameBatch(batchId: string, newName: string): Promise<voi
   try {
     const batch = cachedBatches.find(b => b.id === batchId);
     if (!batch) return;
-    
     batch.name = newName;
-
-    await supabase
-      .from('batches')
-      .update({
-        name: newName,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', batchId);
-  } catch (err) {
-    console.error('Error renaming batch:', err);
-    throw err;
-  }
+    await supabase.from('batches').update({ name: newName, updated_at: new Date().toISOString() }).eq('id', batchId);
+  } catch (err) { console.error('Error renaming batch:', err); throw err; }
 }
 
 export async function deleteBatch(batchId: string): Promise<void> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Must be signed in');
-
-    await supabase
-      .from('batches')
-      .delete()
-      .eq('id', batchId)
-      .eq('user_id', user.id);
-
+    await supabase.from('batches').delete().eq('id', batchId);
     cachedBatches = cachedBatches.filter(b => b.id !== batchId);
-  } catch (err) {
-    console.error('Error deleting batch:', err);
-    throw err;
-  }
+  } catch (err) { console.error('Error deleting batch:', err); throw err; }
 }
 
 export function batchHasProgress(batchId: string): boolean {
@@ -619,18 +663,19 @@ async function _updateBatch(batchId: string, updates: any): Promise<void> {
   if (!batch) return;
 
   const dbUpdates: any = { updated_at: new Date().toISOString() };
-  
   if (updates.batchSizeMultiplier !== undefined) dbUpdates.batch_size_multiplier = updates.batchSizeMultiplier;
   if (updates.currentStepIndex !== undefined) dbUpdates.current_step_index = updates.currentStepIndex;
   if (updates.completedSteps !== undefined) dbUpdates.completed_steps = updates.completedSteps;
   if (updates.activeTimers !== undefined) dbUpdates.active_timers = updates.activeTimers;
 
+  // Always update local cache — works offline
   Object.assign(batch, updates);
+  persistBatches(cachedBatches);
 
-  await supabase
-    .from('batches')
-    .update(dbUpdates)
-    .eq('id', batchId);
+  const { error } = await supabase.from('batches').update(dbUpdates).eq('id', batchId);
+  if (error && isSupabaseNetworkError(error)) {
+    await enqueue({ type: 'update', table: 'batches', payload: dbUpdates, match: { id: batchId } });
+  }
 }
 
 export async function updateBatchSize(batchId: string, multiplier: number): Promise<void> {
@@ -644,7 +689,6 @@ export async function updateBatchStep(batchId: string, stepIndex: number): Promi
 export async function completeBatchStep(batchId: string, stepId: string): Promise<void> {
   const batch = cachedBatches.find(b => b.id === batchId);
   if (!batch) return;
-  
   if (!batch.completedSteps.includes(stepId)) {
     batch.completedSteps.push(stepId);
     await _updateBatch(batchId, { completedSteps: batch.completedSteps });
@@ -655,22 +699,13 @@ export async function completeBatchStep(batchId: string, stepId: string): Promis
 // TIMER MANAGEMENT
 // ============================================
 
-export async function startTimer(
-  batchId: string,
-  stepId: string,
-  durationMinutes: number
-): Promise<void> {
+export async function startTimer(batchId: string, stepId: string, durationMinutes: number): Promise<void> {
   const batch = cachedBatches.find(b => b.id === batchId);
   if (!batch) return;
-
   const timer: Timer = {
-    id: `timer_${Date.now()}`,
-    stepId,
-    startedAt: Date.now(),
-    duration: durationMinutes * 60,
-    acknowledged: false,
+    id: `timer_${Date.now()}`, stepId, startedAt: Date.now(),
+    duration: durationMinutes * 60, acknowledged: false,
   };
-
   batch.activeTimers.push(timer);
   await _updateBatch(batchId, { activeTimers: batch.activeTimers });
 }
@@ -678,7 +713,6 @@ export async function startTimer(
 export async function stopTimer(batchId: string, timerId: string): Promise<void> {
   const batch = cachedBatches.find(b => b.id === batchId);
   if (!batch) return;
-
   batch.activeTimers = batch.activeTimers.filter(t => t.id !== timerId);
   await _updateBatch(batchId, { activeTimers: batch.activeTimers });
 }
@@ -686,7 +720,6 @@ export async function stopTimer(batchId: string, timerId: string): Promise<void>
 export async function acknowledgeTimer(batchId: string, timerId: string): Promise<void> {
   const batch = cachedBatches.find(b => b.id === batchId);
   if (!batch) return;
-
   const timer = batch.activeTimers.find(t => t.id === timerId);
   if (timer) {
     timer.acknowledged = true;
@@ -694,34 +727,19 @@ export async function acknowledgeTimer(batchId: string, timerId: string): Promis
   }
 }
 
-export function getTimerStatus(timer: Timer): {
-  remainingSeconds: number;
-  isExpired: boolean;
-  elapsedSeconds: number;
-} {
-  const now = Date.now();
-  const elapsedMs = now - timer.startedAt;
-  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+export function getTimerStatus(timer: Timer): { remainingSeconds: number; isExpired: boolean; elapsedSeconds: number } {
+  const elapsedSeconds = Math.floor((Date.now() - timer.startedAt) / 1000);
   const remainingSeconds = timer.duration - elapsedSeconds;
-
-  return {
-    remainingSeconds: Math.max(0, remainingSeconds),
-    isExpired: remainingSeconds <= 0,
-    elapsedSeconds,
-  };
+  return { remainingSeconds: Math.max(0, remainingSeconds), isExpired: remainingSeconds <= 0, elapsedSeconds };
 }
 
 export function getMostUrgentTimer(batch: Batch): Timer | null {
   if (batch.activeTimers.length === 0) return null;
-
   const expired = batch.activeTimers.find(t => getTimerStatus(t).isExpired);
   if (expired) return expired;
-
-  return batch.activeTimers.reduce((mostUrgent, timer) => {
-    const urgentRemaining = getTimerStatus(mostUrgent).remainingSeconds;
-    const currentRemaining = getTimerStatus(timer).remainingSeconds;
-    return currentRemaining < urgentRemaining ? timer : mostUrgent;
-  });
+  return batch.activeTimers.reduce((mostUrgent, timer) =>
+    getTimerStatus(timer).remainingSeconds < getTimerStatus(mostUrgent).remainingSeconds ? timer : mostUrgent
+  );
 }
 
 export function batchHasExpiredTimer(batch: Batch): boolean {
@@ -729,32 +747,21 @@ export function batchHasExpiredTimer(batch: Batch): boolean {
 }
 
 // ============================================
-// UTILITY FUNCTIONS
+// UTILITY
 // ============================================
 
 export function formatTimeRemaining(seconds: number): string {
   if (seconds <= 0) return 'Expired';
-  
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${secs}s`;
-  } else {
-    return `${secs}s`;
-  }
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
 }
-
-// ============================================
-// REAL-TIME SYNC
-// ============================================
 
 export async function syncFromServer(): Promise<void> {
-  await Promise.all([
-    getWorkflows(),
-    _refreshBatches(),
-  ]);
+  await Promise.all([getWorkflows(), _refreshBatches()]);
 }
+
+export { flushOfflineQueue, getPendingCount } from './offlineQueue';

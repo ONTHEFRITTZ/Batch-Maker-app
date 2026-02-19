@@ -131,9 +131,7 @@ android {
     def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
     crunchPngs enablePngCrunchInRelease.toBoolean()
 
-    // Optional: keep a copy of the mapping file in build folder
-    mappingFile = file("$buildDir/outputs/mapping/release/mapping.txt")
-}
+    }
 
     }
     packagingOptions {

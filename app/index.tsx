@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Image,
@@ -12,244 +12,232 @@ import {
 } from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 import { supabase } from "../lib/supabase";
-import { pushToCloud } from "../services/cloudSync";
+import { SyncStatusBar } from "../app/components/SyncStatusBar";
+import { useConnectionStatus } from "../hooks/useConnectionStatus";
+import { useAppInit } from "../hooks/useAppInit";
 
 export default function HomeScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [lastSync, setLastSync] = useState<Date | null>(null);
-  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const performSync = async (silent: boolean = true) => {
-    try {
-      console.log("Auto-syncing...");
-      const result = await pushToCloud();
+  // ── Offline-aware init ─────────────────────────────────────────────────────
+  // Replaces the bare getSession() that hung with no internet.
+  // initState: 'loading' | 'online' | 'offline' | 'unauthenticated'
+  const { initState } = useAppInit();
 
-      if (result.success) {
-        setLastSync(new Date());
-        if (!silent && result.uploaded > 0) {
-          console.log(`Synced ${result.uploaded} items`);
-        }
-      } else if (!silent) {
-        Alert.alert("Sync Issues", result.errors.join("\n"));
-      }
-    } catch (error: any) {
-      console.error("Sync error:", error);
-      if (!silent) {
-        Alert.alert("Sync Failed", error.message);
-      }
-    }
-  };
+  // Tracks connection, pending queue count, and provides manualRetry()
+  const connection = useConnectionStatus();
 
+  // ── Auth state ─────────────────────────────────────────────────────────────
   useEffect(() => {
+    // Mirror auth state into local user — useAppInit already handled the
+    // session on startup, this just keeps user in sync for sign-in/out events
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
-      setLoading(false);
-
-      if (session?.user) {
-        performSync(false);
-      }
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
-
-      if (session?.user) {
-        performSync(false);
-      }
     });
 
-    const handleDeepLink = async (event: { url: string }) => {
-      console.log("Deep link received:", event.url);
-      
-      const url = event.url;
+    return () => subscription.unsubscribe();
+  }, []);
 
+  // ── Deep link handler (OAuth callback) ────────────────────────────────────
+  useEffect(() => {
+    const handleDeepLink = async (event: { url: string }) => {
+      const url = event.url;
       if (url.includes("#access_token=") || url.includes("?access_token=")) {
         try {
           const urlObj = new URL(url);
           const hashParams = new URLSearchParams(urlObj.hash.substring(1));
           const queryParams = urlObj.searchParams;
-          
           const access_token = queryParams.get("access_token") || hashParams.get("access_token");
           const refresh_token = queryParams.get("refresh_token") || hashParams.get("refresh_token");
 
           if (access_token && refresh_token) {
-            console.log("Setting session from deep link tokens...");
-            const { error } = await supabase.auth.setSession({
-              access_token,
-              refresh_token,
-            });
-
-            if (error) {
-              console.error("Error setting session:", error);
-              Alert.alert("Sign In Error", error.message);
-            } else {
-              console.log("Session established successfully");
-            }
+            const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+            if (error) Alert.alert("Sign In Error", error.message);
           }
         } catch (error: any) {
-          console.error("Error processing deep link:", error);
           Alert.alert("Error", "Failed to complete sign in");
         }
       }
     };
 
-    const subscription2 = Linking.addEventListener("url", handleDeepLink);
-
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleDeepLink({ url });
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-      subscription2.remove();
-    };
+    const sub = Linking.addEventListener("url", handleDeepLink);
+    Linking.getInitialURL().then(url => { if (url) handleDeepLink({ url }); });
+    return () => sub.remove();
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      syncIntervalRef.current = setInterval(() => {
-        performSync(true);
-      }, 30000);
-
-      return () => {
-        if (syncIntervalRef.current) {
-          clearInterval(syncIntervalRef.current);
-        }
-      };
-    }
-  }, [user]);
-
+  // ── Sign in / out ──────────────────────────────────────────────────────────
   const signInWithGoogle = async () => {
     try {
-      console.log("Starting Google OAuth...");
-
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: {
-          redirectTo: "batchmaker://",
-          skipBrowserRedirect: true, // Get URL but don't auto-open
-        },
+        options: { redirectTo: "batchmaker://", skipBrowserRedirect: true },
       });
-
-      if (error) {
-        console.error("OAuth error:", error);
-        Alert.alert("Error", error.message);
-        return;
-      }
-
-      if (!data?.url) {
-        Alert.alert("Error", "Failed to get sign-in URL");
-        return;
-      }
-
-      // Manually open the URL in system browser
+      if (error) { Alert.alert("Error", error.message); return; }
+      if (!data?.url) { Alert.alert("Error", "Failed to get sign-in URL"); return; }
       const supported = await Linking.canOpenURL(data.url);
-      if (supported) {
-        await Linking.openURL(data.url);
-      } else {
-        Alert.alert("Error", "Cannot open sign-in page");
-      }
+      if (supported) await Linking.openURL(data.url);
+      else Alert.alert("Error", "Cannot open sign-in page");
     } catch (error: any) {
-      console.error("Sign in error:", error);
       Alert.alert("Error", error.message || "Failed to sign in");
     }
   };
 
   const signOut = async () => {
-    if (syncIntervalRef.current) {
-      clearInterval(syncIntervalRef.current);
-    }
     await supabase.auth.signOut();
-    setLastSync(null);
   };
 
-  if (loading) {
+  // ── Loading splash ─────────────────────────────────────────────────────────
+  if (initState === 'loading') {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.text }}>Loading...</Text>
+        <View style={styles.header}>
+          <Image
+            source={require("../assets/images/splash-alpha.png")}
+            style={styles.logo}
+            resizeMode="cover"
+          />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Digital SOP System
+          </Text>
+        </View>
       </View>
     );
   }
 
-  return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {user ? (
-        <View style={styles.topBar}>
-          <View style={styles.syncIndicator}>
-            <View
-              style={[
-                styles.syncDot,
-                { backgroundColor: lastSync ? "#10b981" : "#6b7280" },
-              ]}
-            />
-            <Text style={[styles.syncText, { color: colors.textSecondary }]}>
-              {lastSync
-                ? `Synced ${Math.floor((Date.now() - lastSync.getTime()) / 1000)}s ago`
-                : "Syncing..."}
-            </Text>
-          </View>
-          <TouchableOpacity onPress={signOut} style={styles.signOutButton}>
-            <Text style={styles.signOutText}>Sign Out</Text>
+  // ── Not authenticated (and no cached session) ─────────────────────────────
+  if (initState === 'unauthenticated' && !user) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={styles.header}>
+          <Image
+            source={require("../assets/images/splash-alpha.png")}
+            style={styles.logo}
+            resizeMode="cover"
+          />
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Digital SOP System
+          </Text>
+        </View>
+        <View style={styles.signInContainer}>
+          <TouchableOpacity onPress={signInWithGoogle} style={styles.signInButton}>
+            <Text style={styles.signInButtonText}>Sign In with Google</Text>
           </TouchableOpacity>
         </View>
-      ) : null}
+      </View>
+    );
+  }
 
+  // ── Main app (online or offline with cached data) ─────────────────────────
+  return (
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+
+      {/* Sync / offline status — only on this screen, fades in/out as needed */}
+      <SyncStatusBar connection={connection} />
+
+      {/* Top bar: sync indicator + sign out */}
+      <View style={styles.topBar}>
+        <View style={styles.syncIndicator}>
+          <View style={[
+            styles.syncDot,
+            {
+              backgroundColor:
+                connection.state === 'offline'  ? '#ef4444' :
+                connection.state === 'checking' ? '#f59e0b' :
+                connection.pendingCount > 0     ? '#f59e0b' :
+                                                  '#10b981',
+            }
+          ]} />
+          <Text style={[styles.syncText, { color: colors.textSecondary }]}>
+            {connection.state === 'offline'
+              ? 'Offline'
+              : connection.state === 'checking'
+              ? 'Connecting…'
+              : connection.pendingCount > 0
+              ? `${connection.pendingCount} pending`
+              : connection.lastSyncedAt
+              ? `Synced ${Math.floor((Date.now() - connection.lastSyncedAt.getTime()) / 1000)}s ago`
+              : 'Connected'}
+          </Text>
+        </View>
+        <TouchableOpacity onPress={signOut} style={styles.signOutButton}>
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Logo / header */}
       <View style={styles.header}>
         <Image
           source={require("../assets/images/splash-alpha.png")}
           style={styles.logo}
           resizeMode="cover"
         />
-
         <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
           Digital SOP System
         </Text>
       </View>
 
-      {!user ? (
-        <View style={styles.signInContainer}>
-          <TouchableOpacity
-            onPress={signInWithGoogle}
-            style={styles.signInButton}
-          >
-            <Text style={styles.signInButtonText}>Sign In with Google</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.menuContainer}>
+      {/* Menu */}
+      <View style={styles.menuContainer}>
+        {user && (
           <Text style={[styles.email, { color: colors.textSecondary }]}>
             {user.email}
+            {initState === 'offline' && (
+              <Text style={styles.offlineBadge}> · Offline mode</Text>
+            )}
           </Text>
+        )}
 
-          <TouchableOpacity
-            onPress={() => router.push("/screens/WorkflowSelectScreen")}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>Start Workflow</Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.push("/screens/WorkflowSelectScreen")}
+          style={styles.menuButton}
+        >
+          <Text style={styles.menuButtonText}>Start Workflow</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => router.push("/screens/ClockInScreen")}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>Clock In/Out</Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => router.push("/screens/ClockInScreen")}
+          style={[
+            styles.menuButton,
+            connection.state === 'offline' && styles.menuButtonDisabled,
+          ]}
+          disabled={connection.state === 'offline'}
+        >
+          <Text style={[
+            styles.menuButtonText,
+            connection.state === 'offline' && styles.menuButtonTextDisabled,
+          ]}>
+            Clock In/Out
+          </Text>
+          {connection.state === 'offline' && (
+            <Text style={styles.requiresNet}>Requires internet</Text>
+          )}
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            onPress={() => router.push("/screens/ReportsScreen")}
-            style={styles.menuButton}
-          >
-            <Text style={styles.menuButtonText}>View Reports</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+        <TouchableOpacity
+          onPress={() => router.push("/screens/ReportsScreen")}
+          style={[
+            styles.menuButton,
+            connection.state === 'offline' && styles.menuButtonDisabled,
+          ]}
+          disabled={connection.state === 'offline'}
+        >
+          <Text style={[
+            styles.menuButtonText,
+            connection.state === 'offline' && styles.menuButtonTextDisabled,
+          ]}>
+            View Reports
+          </Text>
+          {connection.state === 'offline' && (
+            <Text style={styles.requiresNet}>Requires internet</Text>
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -339,6 +327,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 32,
   },
+  offlineBadge: {
+    color: '#ef4444',
+    fontSize: 12,
+  },
   menuButton: {
     width: "100%",
     backgroundColor: "#ffffff",
@@ -354,10 +346,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 2,
   },
+  menuButtonDisabled: {
+    opacity: 0.45,
+  },
   menuButtonText: {
     color: "#1f2937",
     fontSize: 16,
     fontWeight: "500",
     textAlign: "center",
+  },
+  menuButtonTextDisabled: {
+    color: "#9ca3af",
+  },
+  requiresNet: {
+    fontSize: 11,
+    color: "#9ca3af",
+    textAlign: "center",
+    marginTop: 2,
   },
 });
