@@ -1,120 +1,81 @@
 // ============================================
 // FILE: hooks/useAppInit.ts
-//
-// Handles app startup auth + database init with
-// offline fallback. Replaces the bare getSession()
-// call that hangs forever when there's no internet.
-//
-// Flow:
-//   1. Load persisted data from AsyncStorage immediately
-//      (UI can render right away with cached data)
-//   2. Race Supabase getSession() against a 5s timeout
-//   3a. Session found → init database normally
-//   3b. Timeout/error → check AsyncStorage for cached
-//       session → drop into offline mode if found
-//   3c. No cached session + no internet → show sign-in
-//
-// The app never hangs. Worst case it shows sign-in
-// (which is correct — no cached user means new device).
+// Offline-aware app initialization.
+// Resolves quickly whether online or offline
+// by racing a real session check against a
+// timeout that falls back to cached session.
 // ============================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { initializeDatabase } from '../services/database';
-import { flushOfflineQueue } from '../services/offlineQueue';
+import { initializeReports } from '../services/reports';
 
-export type AppInitState =
-  | 'loading'      // initial — show splash
-  | 'online'       // authed + connected
-  | 'offline'      // authed + no internet (loaded from cache)
-  | 'unauthenticated'; // no user, no cached session
+export type InitState = 'loading' | 'online' | 'offline' | 'unauthenticated';
 
-export interface AppInitResult {
-  initState: AppInitState;
-  userId: string | null;
-  userEmail: string | null;
-}
+const SESSION_CACHE_KEY = '@cached_session_exists';
+const INIT_TIMEOUT_MS = 3000; // max wait before falling back to offline mode
 
-const SESSION_TIMEOUT_MS = 5000;
-const CACHED_USER_KEY = '@cached_user_v1';
-
-interface CachedUser { id: string; email: string | null; }
-
-async function getSessionWithTimeout(): Promise<any> {
-  return Promise.race([
-    supabase.auth.getSession(),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Session timeout')), SESSION_TIMEOUT_MS)
-    ),
-  ]);
-}
-
-export function useAppInit(): AppInitResult {
-  const [initState, setInitState] = useState<AppInitState>('loading');
-  const [userId, setUserId] = useState<string | null>(null);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const isMountedRef = useRef(true);
+export function useAppInit(): { initState: InitState } {
+  const [initState, setInitState] = useState<InitState>('loading');
 
   useEffect(() => {
-    isMountedRef.current = true;
-    init();
-    return () => { isMountedRef.current = false; };
-  }, []);
+    let cancelled = false;
 
-  async function init() {
-    try {
-      // Step 1: Try to get session from Supabase with timeout
-      const { data: { session } } = await getSessionWithTimeout();
-
-      if (!isMountedRef.current) return;
-
-      if (session?.user) {
-        // Online + authenticated
-        await AsyncStorage.setItem(
-          CACHED_USER_KEY,
-          JSON.stringify({ id: session.user.id, email: session.user.email ?? null })
-        );
-        setUserId(session.user.id);
-        setUserEmail(session.user.email ?? null);
-
-        // Init DB (loads persisted cache first, then syncs)
-        await initializeDatabase();
-
-        // Flush any queued offline writes
-        await flushOfflineQueue();
-
-        if (isMountedRef.current) setInitState('online');
-      } else {
-        // Supabase responded but no session — user is signed out
-        await AsyncStorage.removeItem(CACHED_USER_KEY);
-        if (isMountedRef.current) setInitState('unauthenticated');
-      }
-    } catch (err) {
-      // Timeout or network error — try cached session
-      if (!isMountedRef.current) return;
-      console.warn('[AppInit] Supabase unreachable, trying cached session:', err);
-
+    async function init() {
       try {
-        const raw = await AsyncStorage.getItem(CACHED_USER_KEY);
-        if (raw) {
-          const cached: CachedUser = JSON.parse(raw);
-          // Load whatever we have in AsyncStorage and go offline
-          await initializeDatabase(); // will load from AsyncStorage only since network is down
-          if (isMountedRef.current) {
-            setUserId(cached.id);
-            setUserEmail(cached.email);
+        // Race: real session check vs timeout
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), INIT_TIMEOUT_MS)),
+        ]);
+
+        if (cancelled) return;
+
+        // Timed out — check if we have a cached session indicator
+        if (sessionResult === null) {
+          const cachedExists = await AsyncStorage.getItem(SESSION_CACHE_KEY);
+          if (cachedExists === 'true') {
+            // User was previously logged in — let them use the app offline
             setInitState('offline');
+          } else {
+            setInitState('unauthenticated');
           }
-        } else {
-          // No cache, no network — must sign in when online
-          if (isMountedRef.current) setInitState('unauthenticated');
+          return;
         }
-      } catch {
-        if (isMountedRef.current) setInitState('unauthenticated');
+
+        const { data: { session } } = sessionResult as Awaited<ReturnType<typeof supabase.auth.getSession>>;
+
+        if (!session) {
+          await AsyncStorage.setItem(SESSION_CACHE_KEY, 'false');
+          setInitState('unauthenticated');
+          return;
+        }
+
+        // Authenticated and online
+        await AsyncStorage.setItem(SESSION_CACHE_KEY, 'true');
+
+        // Run background inits — don't block the UI state update on these
+        Promise.all([
+          initializeDatabase().catch(e => console.warn('[useAppInit] db init error:', e)),
+          initializeReports().catch(e => console.warn('[useAppInit] reports init error:', e)),
+        ]);
+
+        if (!cancelled) setInitState('online');
+
+      } catch (err) {
+        if (cancelled) return;
+        console.warn('[useAppInit] init error, checking cached session:', err);
+
+        const cachedExists = await AsyncStorage.getItem(SESSION_CACHE_KEY);
+        setInitState(cachedExists === 'true' ? 'offline' : 'unauthenticated');
       }
     }
-  }
 
-  return { initState, userId, userEmail };
+    init();
+    return () => { cancelled = true; };
+  }, []);
+
+  return { initState };
 }

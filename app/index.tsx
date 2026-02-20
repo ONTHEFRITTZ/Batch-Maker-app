@@ -1,3 +1,10 @@
+// ============================================
+// FILE: app/index.tsx
+// Offline-aware home screen.
+// Uses useAppInit for startup state and
+// useConnectionStatus for live sync status.
+// ============================================
+
 import type { User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
@@ -22,17 +29,13 @@ export default function HomeScreen() {
   const [user, setUser] = useState<User | null>(null);
 
   // ── Offline-aware init ─────────────────────────────────────────────────────
-  // Replaces the bare getSession() that hung with no internet.
-  // initState: 'loading' | 'online' | 'offline' | 'unauthenticated'
   const { initState } = useAppInit();
 
-  // Tracks connection, pending queue count, and provides manualRetry()
+  // ── Live connection + sync status ──────────────────────────────────────────
   const connection = useConnectionStatus();
 
-  // ── Auth state ─────────────────────────────────────────────────────────────
+  // ── Auth state (mirrors session in/out events after init) ─────────────────
   useEffect(() => {
-    // Mirror auth state into local user — useAppInit already handled the
-    // session on startup, this just keeps user in sync for sign-in/out events
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
     });
@@ -60,7 +63,7 @@ export default function HomeScreen() {
             const { error } = await supabase.auth.setSession({ access_token, refresh_token });
             if (error) Alert.alert("Sign In Error", error.message);
           }
-        } catch (error: any) {
+        } catch {
           Alert.alert("Error", "Failed to complete sign in");
         }
       }
@@ -71,7 +74,7 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, []);
 
-  // ── Sign in / out ──────────────────────────────────────────────────────────
+  // ── Auth actions ───────────────────────────────────────────────────────────
   const signInWithGoogle = async () => {
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -110,7 +113,7 @@ export default function HomeScreen() {
     );
   }
 
-  // ── Not authenticated (and no cached session) ─────────────────────────────
+  // ── Not authenticated ──────────────────────────────────────────────────────
   if (initState === 'unauthenticated' && !user) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -133,14 +136,14 @@ export default function HomeScreen() {
     );
   }
 
-  // ── Main app (online or offline with cached data) ─────────────────────────
+  // ── Main app (online or offline with cached session) ───────────────────────
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
 
-      {/* Sync / offline status — only on this screen, fades in/out as needed */}
+      {/* Offline / sync status banner */}
       <SyncStatusBar connection={connection} />
 
-      {/* Top bar: sync indicator + sign out */}
+      {/* Top bar: sync dot + sign out */}
       <View style={styles.topBar}>
         <View style={styles.syncIndicator}>
           <View style={[
@@ -170,7 +173,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Logo / header */}
+      {/* Logo */}
       <View style={styles.header}>
         <Image
           source={require("../assets/images/splash-alpha.png")}

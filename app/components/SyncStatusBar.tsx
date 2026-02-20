@@ -1,24 +1,12 @@
 // ============================================
-// FILE: components/SyncStatusBar.tsx
-//
-// Shown only on HomeScreen. Displays:
-//   - Online + synced: nothing (hidden)
-//   - Online + pending ops: "Syncing X changes..."
-//   - Offline: "Offline · Tap to retry"
-//   - Checking: "Checking connection..."
-//
-// Stays out of the way when everything is fine.
+// FILE: app/components/SyncStatusBar.tsx
+// Displays a slim banner when the app is
+// offline, checking, or has pending writes.
+// Fades out automatically when all clear.
 // ============================================
 
 import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  Animated,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native';
+import { Animated, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ConnectionStatus } from '../../hooks/useConnectionStatus';
 
 interface Props {
@@ -26,46 +14,44 @@ interface Props {
 }
 
 export function SyncStatusBar({ connection }: Props) {
-  const { state, pendingCount, lastSyncedAt, manualRetry } = connection;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const { state, pendingCount, manualRetry } = connection;
 
-  const isVisible =
+  // Only show when something needs attention
+  const visible =
     state === 'offline' ||
     state === 'checking' ||
-    (state === 'online' && pendingCount > 0);
+    pendingCount > 0;
+
+  const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
 
   useEffect(() => {
     Animated.timing(opacity, {
-      toValue: isVisible ? 1 : 0,
+      toValue: visible ? 1 : 0,
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, [isVisible]);
+  }, [visible, opacity]);
 
-  if (!isVisible && opacity._value === 0) return null;
+  if (!visible && opacity.__getValue() === 0) return null;
 
-  const barColor =
-    state === 'offline'  ? '#7C3030' :
-    state === 'checking' ? '#4A4A2E' :
-    '#1E3A1E'; // syncing — muted green
+  const bgColor =
+    state === 'offline'  ? '#ef4444' :
+    state === 'checking' ? '#f59e0b' :
+    pendingCount > 0     ? '#f59e0b' :
+                           '#10b981';
 
-  const label =
-    state === 'offline'  ? 'Offline  ·  Changes saved locally' :
-    state === 'checking' ? 'Checking connection…' :
-    pendingCount === 1   ? 'Syncing 1 change…' :
-                           `Syncing ${pendingCount} changes…`;
+  const message =
+    state === 'offline'
+      ? '● No internet connection'
+      : state === 'checking'
+      ? '○ Connecting…'
+      : `↑ ${pendingCount} change${pendingCount !== 1 ? 's' : ''} pending sync`;
 
   return (
-    <Animated.View style={[styles.bar, { backgroundColor: barColor, opacity }]}>
-      {state === 'checking' && (
-        <ActivityIndicator size="small" color="#AAA" style={styles.spinner} />
-      )}
-      {state === 'online' && pendingCount > 0 && (
-        <ActivityIndicator size="small" color="#AAA" style={styles.spinner} />
-      )}
-      <Text style={styles.label}>{label}</Text>
+    <Animated.View style={[styles.bar, { backgroundColor: bgColor, opacity }]}>
+      <Text style={styles.text}>{message}</Text>
       {state === 'offline' && (
-        <TouchableOpacity onPress={manualRetry} style={styles.retryButton} activeOpacity={0.7}>
+        <TouchableOpacity onPress={manualRetry} style={styles.retryBtn}>
           <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       )}
@@ -75,32 +61,41 @@ export function SyncStatusBar({ connection }: Props) {
 
 const styles = StyleSheet.create({
   bar: {
+    position: 'absolute',
+    // Positioned lower so it doesn't clash with notch/Dynamic Island
+    top: 100,
+    left: 16,
+    right: 16,
+    borderRadius: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 16,
-    gap: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    zIndex: 100,
+    // Shadow so it floats above content
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  spinner: {
-    marginRight: 4,
+  text: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
   },
-  label: {
-    fontSize: 12,
-    color: '#CCC',
-    letterSpacing: 0.2,
-  },
-  retryButton: {
-    marginLeft: 8,
-    paddingVertical: 2,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#888',
+  retryBtn: {
+    marginLeft: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 6,
   },
   retryText: {
-    fontSize: 11,
-    color: '#CCC',
-    fontWeight: '600',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

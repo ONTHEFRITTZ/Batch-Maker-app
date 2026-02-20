@@ -1,23 +1,23 @@
 // ============================================
 // FILE: app/_layout.tsx
-// Added ClockInScreen to Stack navigator.
-// Removed broken syncService import.
+// Root layout. Removed all deprecated imports
+// (syncService, cloudSync, initializeDatabase).
+// Init is handled by useAppInit in index.tsx.
+// Layout only handles foreground queue flush.
 // ============================================
 
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
+import { AppState } from 'react-native';
 import * as Linking from 'expo-linking';
 import CustomHeader from './components/CustomHeader';
-import { syncFromServer } from '../services/database';
 import { initializeReports } from '../services/reports';
 import { flushOfflineQueue } from '../services/offlineQueue';
-// initializeDatabase is called via useAppInit in the index screen
-// _layout only handles foreground sync flush
 import { ThemeProvider } from '../contexts/ThemeContext';
 
-// Global deep link listener
+// Global deep link listener (logs only — actual handling is in index.tsx)
 Linking.addEventListener('url', (event) => {
-  console.log('GLOBAL deep link listener:', event.url);
+  console.log('GLOBAL deep link:', event.url);
 });
 
 export const unstable_settings = {
@@ -26,12 +26,14 @@ export const unstable_settings = {
 
 export default function Layout() {
   useEffect(() => {
-    // Re-flush queue whenever app returns to foreground
-    // (init is handled by useAppInit in the index screen)
+    // Run lightweight background inits that don't block the UI
     initializeReports().catch(() => {});
-    const { AppState } = require('react-native');
-    const sub = AppState.addEventListener('change', (state: string) => {
-      if (state === 'active') flushOfflineQueue().catch(() => {});
+
+    // Flush any queued offline writes whenever the app comes to foreground
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        flushOfflineQueue().catch(() => {});
+      }
     });
 
     return () => sub.remove();
